@@ -5,6 +5,8 @@ import cors from "cors";
 import connectDB from "./config/db.js";
 import merchantAuthRoutes from './routes/merchantAuthRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
+import dashboardRoutes from './routes/dashboardRoutes.js'; // Add this line
+
 dotenv.config();
 
 const app = express();
@@ -16,6 +18,7 @@ connectDB();
 
 app.use('/api/merchant/auth', merchantAuthRoutes);
 app.use("/api/transactions", transactionRoutes);
+app.use('/api/dashboard', dashboardRoutes); // Add this line
 
 app.get('/', (req, res) => {
   res.send('Welcome to the PG-Merchant Backend API!');
