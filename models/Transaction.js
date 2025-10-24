@@ -36,9 +36,9 @@ const TransactionSchema = new mongoose.Schema(
       type: String, 
       default: "INR" 
     },
-    status: { 
+   status: { 
       type: String, 
-      enum: ["Pending", "Success", "Failed", "Cancelled"],
+      enum: ["Pending", "Success", "Failed", "Cancelled", "Refund Initiated"],
       default: "Pending" 
     },
     upiId: { 
@@ -63,8 +63,18 @@ const TransactionSchema = new mongoose.Schema(
     merchantVpa: { 
       type: String,
       default: "enpay1.skypal@fino"
+    },
+     customerName: {
+      type: String
+    },
+    customerVpa: {
+      type: String
+    },
+    customerContact: {
+      type: String
     }
   },
+  
   { 
     timestamps: true
   }

@@ -63,34 +63,9 @@ const getDateRange = (filter, startDate, endDate) => {
   };
 };
 
-
-// Middleware to protect routes and get merchantId
-// This is a placeholder. You should replace it with your actual auth middleware.
-const protect = (req, res, next) => {
-  // In a real application, you would verify a JWT token and
-  // attach the user object (including _id and role) to req.user.
-  // For demonstration, let's assume req.user is populated.
-  
-  // Example: If an admin is logged in, they might not have a merchantId.
-  // If a merchant is logged in, req.user._id would be their merchantId.
-  
-  // For now, we'll let all requests through, but if you pass a merchantId
-  // in the query, it will be used. In a real scenario, you'd extract
-  // req.user._id for a merchant user.
-
-  // req.user = { _id: '65239a259c02d1a3c6168e36', role: 'merchant' }; // Example merchant user
-  // req.user = { _id: '65239a259c02d1a3c6168e35', role: 'admin' }; // Example admin user
-  next();
-};
-
 // Get All Merchant Users for Filter (Admin Only)
 export const getAllMerchants = async (req, res) => {
   try {
-    // Only allow this for admin users
-    // if (req.user && req.user.role !== 'admin') {
-    //   return res.status(403).json({ message: 'Access denied. Admins only.' });
-    // }
-
     const merchants = await User.find({ 
       role: "merchant", 
       status: "Active" 
@@ -113,25 +88,17 @@ export const getDashboardAnalytics = async (req, res) => {
   try {
     let { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
 
-    // If a merchant is logged in, override the merchantId from query with their own
-    // if (req.user && req.user.role === 'merchant') {
-    //   merchantId = req.user._id;
-    // }
-
     console.log('🟡 Fetching analytics with:', { merchantId, timeFilter, startDate, endDate });
 
     let matchQuery = {};
     
-    // Merchant filter with ObjectId conversion
     if (merchantId && merchantId !== 'all') {
-      // Ensure merchantId is a valid ObjectId
       if (!mongoose.Types.ObjectId.isValid(merchantId)) {
         return res.status(400).json({ message: 'Invalid merchant ID format.' });
       }
       matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
     }
 
-    // Date filter
     if (timeFilter !== 'all') {
       const dateRange = getDateRange(timeFilter, startDate, endDate);
       matchQuery = { ...matchQuery, ...dateRange };
@@ -214,7 +181,6 @@ export const getDashboardAnalytics = async (req, res) => {
     };
 
     console.log('✅ Analytics result:', result);
-
     res.status(200).json(result);
   } catch (error) {
     console.error('❌ Error fetching dashboard analytics:', error);
@@ -230,16 +196,10 @@ export const getTransactionsByMerchantStatus = async (req, res) => {
   try {
     let { merchantId, status, timeFilter = 'today', page = 1, limit = 10, startDate, endDate } = req.query;
 
-    // If a merchant is logged in, override the merchantId from query with their own
-    // if (req.user && req.user.role === 'merchant') {
-    //   merchantId = req.user._id;
-    // }
-
     console.log('🟡 Fetching transactions with:', { merchantId, status, timeFilter, startDate, endDate });
 
     let matchQuery = {};
     
-    // CRITICAL FIX: Convert merchantId to ObjectId for query
     if (merchantId && merchantId !== 'all') {
       if (!mongoose.Types.ObjectId.isValid(merchantId)) {
         return res.status(400).json({ message: 'Invalid merchant ID format.' });
@@ -247,7 +207,6 @@ export const getTransactionsByMerchantStatus = async (req, res) => {
       matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
     }
 
-    // Status filter
     if (status && status !== 'all') {
       const statusMapping = {
         'SUCCESS': ['Success', 'SUCCESS'],
@@ -263,7 +222,6 @@ export const getTransactionsByMerchantStatus = async (req, res) => {
       }
     }
 
-    // Date filter
     if (timeFilter !== 'all') {
       const dateRange = getDateRange(timeFilter, startDate, endDate);
       matchQuery = { ...matchQuery, ...dateRange };
@@ -273,7 +231,6 @@ export const getTransactionsByMerchantStatus = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Use aggregation with proper ObjectId handling
     const transactions = await Transaction.aggregate([
       { $match: matchQuery },
       {
@@ -318,7 +275,7 @@ export const getTransactionsByMerchantStatus = async (req, res) => {
                     ]
                   },
                   then: { $concat: ["$merchantInfo.firstname", " ", "$merchantInfo.lastname"] },
-                  else: "$merchantName" // Fallback to original merchantName
+                  else: "$merchantName"
                 }
               }
             }
@@ -346,12 +303,9 @@ export const getTransactionsByMerchantStatus = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error fetching transactions by merchant status:', error);
-    console.error('🔍 Error stack:', error.stack);
-    
     res.status(500).json({ 
       message: 'Server Error', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: error.message
     });
   }
 };
@@ -360,16 +314,10 @@ export const getMerchantTransactionSummary = async (req, res) => {
   try {
     let { timeFilter = 'today', merchantId, startDate, endDate } = req.query;
 
-    // If a merchant is logged in, override the merchantId from query with their own
-    // if (req.user && req.user.role === 'merchant') {
-    //   merchantId = req.user._id;
-    // }
-
     console.log('🟡 Fetching merchant summary with:', { timeFilter, merchantId, startDate, endDate });
 
     let matchQuery = {};
     
-    // Merchant filter with ObjectId conversion
     if (merchantId && merchantId !== 'all') {
       if (!mongoose.Types.ObjectId.isValid(merchantId)) {
         return res.status(400).json({ message: 'Invalid merchant ID format.' });
@@ -377,7 +325,6 @@ export const getMerchantTransactionSummary = async (req, res) => {
       matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
     }
 
-    // Date filter
     if (timeFilter !== 'all') {
       const dateRange = getDateRange(timeFilter, startDate, endDate);
       matchQuery = { ...matchQuery, ...dateRange };
@@ -458,17 +405,12 @@ export const getMerchantTransactionSummary = async (req, res) => {
     ]);
 
     console.log('✅ Merchant summary fetched:', merchantSummary.length, 'merchants');
-    if (merchantSummary.length > 0) {
-      console.log('📊 Sample merchant data:', merchantSummary[0]);
-    }
-
     res.status(200).json(merchantSummary);
   } catch (error) {
     console.error('❌ Error fetching merchant transaction summary:', error);
     res.status(500).json({ 
       message: 'Server Error', 
-      error: error.message,
-      stack: error.stack 
+      error: error.message
     });
   }
 };
@@ -477,11 +419,6 @@ export const getMerchantTransactionSummary = async (req, res) => {
 export const getRecentOrders = async (req, res) => {
   try {
     let { limit = 10, merchantId, status, timeFilter = 'today', startDate, endDate } = req.query;
-
-    // If a merchant is logged in, override the merchantId from query with their own
-    // if (req.user && req.user.role === 'merchant') {
-    //   merchantId = req.user._id;
-    // }
 
     let matchQuery = {};
     if (merchantId && merchantId !== 'all') {
@@ -567,15 +504,12 @@ export const getRecentOrders = async (req, res) => {
 // Debug endpoint to check data structure
 export const debugDataStructure = async (req, res) => {
   try {
-    // Check a sample transaction
     const sampleTransaction = await Transaction.findOne();
     console.log('🔍 Sample Transaction:', sampleTransaction);
     
-    // Check a sample merchant
     const sampleMerchant = await User.findOne({ role: "merchant" });
     console.log('🔍 Sample Merchant:', sampleMerchant);
     
-    // Check if merchantId matches
     const merchantIdInTransaction = sampleTransaction?.merchantId;
     const merchantIdInUser = sampleMerchant?._id?.toString();
     
@@ -584,7 +518,7 @@ export const debugDataStructure = async (req, res) => {
       userMerchantId: merchantIdInUser,
       typeTransaction: typeof merchantIdInTransaction,
       typeUser: typeof merchantIdInUser,
-      areEqual: merchantIdInTransaction == merchantIdInUser // Use == for coercion comparison if types differ
+      areEqual: merchantIdInTransaction == merchantIdInUser
     });
 
     res.status(200).json({
@@ -592,7 +526,7 @@ export const debugDataStructure = async (req, res) => {
         merchantId: sampleTransaction?.merchantId,
         merchantName: sampleTransaction?.merchantName,
         type: typeof sampleTransaction?.merchantId,
-        _id: sampleTransaction?._id // Include _id for debugging
+        _id: sampleTransaction?._id
       },
       sampleMerchant: {
         _id: sampleMerchant?._id,
@@ -602,7 +536,7 @@ export const debugDataStructure = async (req, res) => {
         type: typeof sampleMerchant?._id
       },
       comparison: {
-        areIdsMatching: sampleTransaction?.merchantId && sampleMerchant?._id ? sampleTransaction.merchantId.equals(sampleMerchant._id) : false, // Proper ObjectId comparison
+        areIdsMatching: sampleTransaction?.merchantId && sampleMerchant?._id ? sampleTransaction.merchantId.equals(sampleMerchant._id) : false,
         transactionId: merchantIdInTransaction,
         userId: merchantIdInUser
       }
@@ -614,15 +548,14 @@ export const debugDataStructure = async (req, res) => {
   }
 };
 
-// dashboardController.js मध्ये
+// Merchant Analytics - FIXED VERSION
 export const getMerchantAnalytics = async (req, res) => {
   try {
     let { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
 
     console.log('🟡 Merchant Analytics Request:', { 
       merchantId, 
-      timeFilter, 
-      headers: req.headers 
+      timeFilter
     });
 
     if (!merchantId) {
@@ -632,7 +565,6 @@ export const getMerchantAnalytics = async (req, res) => {
       });
     }
 
-    // ObjectId validation
     if (!mongoose.Types.ObjectId.isValid(merchantId)) {
       return res.status(400).json({ 
         message: 'Invalid merchant ID format',
@@ -646,21 +578,16 @@ export const getMerchantAnalytics = async (req, res) => {
       merchantId: objectId
     };
 
-    // Date range
     if (timeFilter !== 'all') {
       const dateRange = getDateRange(timeFilter, startDate, endDate);
       matchQuery = { ...matchQuery, ...dateRange };
     }
 
-    console.log('🔍 Final Match Query:', JSON.stringify(matchQuery, null, 2));
+    console.log('🔍 Final Match Query for merchant analytics:', JSON.stringify(matchQuery, null, 2));
 
-    // प्रथम transactions तपासा
+    // Check if transactions exist for this merchant
     const totalTransactions = await Transaction.countDocuments(matchQuery);
     console.log(`📊 Found ${totalTransactions} transactions for merchant ${merchantId}`);
-
-    // Sample transaction तपासा
-    const sampleTx = await Transaction.findOne(matchQuery);
-    console.log('🔍 Sample transaction:', sampleTx);
 
     const analytics = await Transaction.aggregate([
       { $match: matchQuery },
@@ -724,7 +651,7 @@ export const getMerchantAnalytics = async (req, res) => {
       totalTransactions: 0
     };
 
-    console.log('✅ Final Analytics Result:', result);
+    console.log('✅ Final Merchant Analytics Result:', result);
     
     res.status(200).json(result);
 
@@ -732,26 +659,22 @@ export const getMerchantAnalytics = async (req, res) => {
     console.error('❌ Merchant Analytics Error:', error);
     res.status(500).json({
       message: 'Server Error',
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: error.message
     });
   }
 };
 
-// Debug endpoint जोडा
+// Debug endpoint
 export const checkMerchantData = async (req, res) => {
   try {
     const { merchantId } = req.query;
     
-    // Merchant user तपासा
     const merchantUser = await User.findById(merchantId);
     console.log('🔍 Merchant User:', merchantUser);
     
-    // Transactions तपासा  
     const transactions = await Transaction.find({ merchantId: merchantId }).limit(5);
     console.log('🔍 Merchant Transactions:', transactions);
     
-    // Count तपासा
     const txCount = await Transaction.countDocuments({ merchantId: merchantId });
     console.log(`🔍 Total transactions for merchant: ${txCount}`);
     
@@ -765,4 +688,154 @@ export const checkMerchantData = async (req, res) => {
     console.error('❌ Check merchant data error:', error);
     res.status(500).json({ error: error.message });
   }
+};
+
+// Helper function to determine the grouping for aggregation based on timeFilter
+const getGroupingForSalesReport = (timeFilter) => {
+    switch (timeFilter) {
+        case 'today':
+        case 'yesterday':
+            return {
+                year: { $year: "$createdAt" },
+                month: { $month: "$createdAt" },
+                day: { $dayOfMonth: "$createdAt" },
+                hour: { $hour: "$createdAt" }
+            };
+        case 'this_week':
+        case 'last_week':
+        case 'this_month':
+        case 'last_month':
+            return {
+                year: { $year: "$createdAt" },
+                month: { $month: "$createdAt" },
+                day: { $dayOfMonth: "$createdAt" }
+            };
+        case 'this_year':
+        case 'last_year':
+        case 'custom':
+            return {
+                year: { $year: "$createdAt" },
+                month: { $month: "$createdAt" }
+            };
+        default:
+            return {
+                year: { $year: "$createdAt" },
+                month: { $month: "$createdAt" },
+                day: { $dayOfMonth: "$createdAt" }
+            };
+    }
+};
+
+// Sales Report - FIXED VERSION
+export const getSalesReport = async (req, res) => {
+    try {
+        const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
+
+        console.log('🟡 Fetching sales report for merchant:', merchantId);
+
+        if (!merchantId) {
+            return res.status(400).json({
+                message: 'Merchant ID is required'
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(merchantId)) {
+            return res.status(400).json({ message: 'Invalid merchant ID format.' });
+        }
+
+        let matchQuery = {
+            merchantId: new mongoose.Types.ObjectId(merchantId)
+        };
+
+        const dateRange = getDateRange(timeFilter, startDate, endDate);
+        matchQuery = { ...matchQuery, ...dateRange };
+
+        console.log('🔍 Sales Report Match Query:', JSON.stringify(matchQuery, null, 2));
+
+        const groupById = getGroupingForSalesReport(timeFilter);
+
+        const salesReport = await Transaction.aggregate([
+            { $match: matchQuery },
+            {
+                $group: {
+                    _id: groupById,
+                    totalIncome: {
+                        $sum: {
+                            $cond: [{ $in: ["$status", ["Success", "SUCCESS"]] }, "$amount", 0]
+                        }
+                    },
+                    totalCostOfSales: {
+                        $sum: {
+                            $cond: [{ $in: ["$status", ["Failed", "FAILED", "Refund", "REFUND"]] }, "$amount", 0]
+                        }
+                    },
+                    totalPendingAmount: {
+                        $sum: {
+                            $cond: [{ $in: ["$status", ["Pending", "PENDING"]] }, "$amount", 0]
+                        }
+                    },
+                    totalAmount: { $sum: "$amount" },
+                    successCount: {
+                        $sum: { $cond: [{ $in: ["$status", ["Success", "SUCCESS"]] }, 1, 0] }
+                    },
+                    failedCount: {
+                        $sum: { $cond: [{ $in: ["$status", ["Failed", "FAILED"]] }, 1, 0] }
+                    },
+                    pendingCount: {
+                        $sum: { $cond: [{ $in: ["$status", ["Pending", "PENDING"]] }, 1, 0] }
+                    },
+                    refundCount: {
+                        $sum: { $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, 1, 0] }
+                    }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    date: {
+                        $dateFromParts: {
+                            year: "$_id.year",
+                            month: "$_id.month",
+                            day: { $ifNull: ["$_id.day", 1] },
+                            hour: { $ifNull: ["$_id.hour", 0] }
+                        }
+                    },
+                    month: "$_id.month",
+                    hour: "$_id.hour",
+                    totalIncome: { $ifNull: ["$totalIncome", 0] },
+                    totalCostOfSales: { $ifNull: ["$totalCostOfSales", 0] },
+                    totalPendingAmount: { $ifNull: ["$totalPendingAmount", 0] },
+                    totalAmount: { $ifNull: ["$totalAmount", 0] },
+                    successCount: 1,
+                    failedCount: 1,
+                    pendingCount: 1,
+                    refundCount: 1
+                }
+            },
+            { $sort: { date: 1 } }
+        ]);
+
+        console.log(`✅ Sales report fetched: ${salesReport.length} entries`);
+        
+        if (salesReport.length > 0) {
+            console.log('📊 Sales report details:', {
+                firstEntry: salesReport[0],
+                totalEntries: salesReport.length,
+                totalIncome: salesReport.reduce((sum, item) => sum + item.totalIncome, 0),
+                totalPending: salesReport.reduce((sum, item) => sum + item.totalPendingAmount, 0),
+                totalCost: salesReport.reduce((sum, item) => sum + item.totalCostOfSales, 0)
+            });
+        } else {
+            console.log('📊 No sales report data found for the given filters');
+        }
+        
+        res.status(200).json(salesReport);
+
+    } catch (error) {
+        console.error('❌ Error fetching sales report:', error);
+        res.status(500).json({
+            message: 'Server Error',
+            error: error.message
+        });
+    }
 };

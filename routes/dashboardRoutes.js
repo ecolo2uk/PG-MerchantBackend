@@ -7,13 +7,13 @@ import {
   getTransactionsByMerchantStatus,
   debugDataStructure,
   checkMerchantData,
-  getMerchantAnalytics  
+  getMerchantAnalytics,
+  getSalesReport  // Add this import
 } from '../controllers/dashboardController.js';
 
 const router = express.Router();
 
 const protect = (req, res, next) => {
-  
   next(); 
 };
 
@@ -27,7 +27,7 @@ router.get('/debug-structure', debugDataStructure);
 
 // Add these new routes for merchant dashboard
 router.get('/merchant-analytics', protect, getMerchantAnalytics);
-// Note: merchant-transactions route already exists above as 'transactions-by-merchant'
-// routes.js मध्ये
+router.get('/sales-report', protect, getSalesReport); // Add this route
 router.get('/check-merchant-data', protect, checkMerchantData);
+
 export default router;

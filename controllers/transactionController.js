@@ -9,10 +9,10 @@ export const getTransactions = async (req, res) => {
   try {
     // Get merchant ID from authenticated request
     const merchantId = req.user.id;
-    
+
     const transactions = await Transaction.find({ merchantId })
       .sort({ createdAt: -1 });
-    
+
     res.json(transactions);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -89,81 +89,6 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-// Initiate Collect Request with Merchant Info
-export const initiateCollectRequest = async (req, res) => {
-  try {
-    const { 
-      amount, 
-      merchantOrderId = `ORDER${Date.now()}`,
-      txnNote = "Collect for Order" 
-    } = req.body;
-    
-    const merchantId = req.user.id;
-    const merchantName = `${req.user.firstname} ${req.user.lastname}`;
-
-    console.log("🟡 Collect Request from:", merchantName, req.body);
-
-    if (!amount || amount <= 0) {
-      return res.status(400).json({
-        code: 400,
-        message: "Valid amount is required"
-      });
-    }
-
-    // Generate unique IDs
-    const transactionId = generateTransactionId();
-    const txnRefId = generateTxnRefId();
-
-    // Create UPI URL for collect request
-    const upiUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
-
-    // Create transaction record with merchant info
-    const transaction = new Transaction({
-      transactionId: transactionId,
-      merchantOrderId: merchantOrderId,
-      merchantHashId: process.env.MERCHANT_HASH_ID || "default_merchant_hash",
-      merchantId: merchantId,
-      merchantName: merchantName,
-      amount: parseFloat(amount),
-      status: "Pending",
-      merchantVpa: "enpay1.skypal@fino",
-      txnNote,
-      txnRefId,
-      upiId: "enpay1.skypal@fino",
-      paymentUrl: upiUrl,
-      qrCode: upiUrl,
-      currency: "INR"
-    });
-
-    await transaction.save();
-    console.log("✅ Collect Request Transaction Saved for:", merchantName);
-
-    res.json({
-      code: 200,
-      message: "Collect request initiated successfully",
-      details: upiUrl,
-      transaction: {
-        transactionId: transaction.transactionId,
-        merchantOrderId: transaction.merchantOrderId,
-        amount: transaction.amount,
-        status: transaction.status,
-        upiId: transaction.upiId,
-        txnRefId: transaction.txnRefId,
-        paymentUrl: transaction.paymentUrl,
-        qrCode: upiUrl,
-        merchantName: merchantName
-      }
-    });
-
-  } catch (error) {
-    console.error("❌ Collect Request Error:", error);
-    res.status(500).json({
-      code: 500,
-      message: "Collect request failed: " + error.message
-    });
-  }
-};
-
 // Default QR with Merchant Info
 export const generateDefaultQR = async (req, res) => {
   try {
@@ -225,17 +150,115 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
-// Other functions remain same...
-export const checkTransactionStatus = async (req, res) => {
+// View Transaction Details
+export const getTransactionDetails = async (req, res) => {
   try {
     const { transactionId } = req.params;
-    const merchantId = req.user.id; // Only allow merchant to check their own transactions
-    
+    const merchantId = req.user.id;
+
     const transaction = await Transaction.findOne({ 
       transactionId, 
       merchantId 
     });
-    
+
+    if (!transaction) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    res.json(transaction);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Download Receipt
+export const downloadReceipt = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const merchantId = req.user.id;
+
+    const transaction = await Transaction.findOne({ 
+      transactionId, 
+      merchantId 
+    });
+
+    if (!transaction) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    if (transaction.status !== "Success") {
+      return res.status(400).json({ message: "Receipt only available for successful transactions" });
+    }
+
+    // Generate receipt data (you can use PDF generation libraries here)
+    const receiptData = {
+      transactionId: transaction.transactionId,
+      amount: transaction.amount,
+      date: transaction.createdAt,
+      merchantName: transaction.merchantName,
+      status: transaction.status,
+      upiId: transaction.upiId
+    };
+
+    res.json({
+      code: 200,
+      message: "Receipt generated successfully",
+      receipt: receiptData
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Initiate Refund
+export const initiateRefund = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const { refundAmount, reason } = req.body;
+    const merchantId = req.user.id;
+
+    const transaction = await Transaction.findOne({ 
+      transactionId, 
+      merchantId 
+    });
+
+    if (!transaction) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    if (transaction.status !== "Success") {
+      return res.status(400).json({ message: "Refund only available for successful transactions" });
+    }
+
+    // Implement refund logic here
+    console.log(`🟡 Refund initiated for: ${transactionId}, Amount: ${refundAmount}, Reason: ${reason}`);
+
+    res.json({
+      code: 200,
+      message: "Refund initiated successfully",
+      refundId: `REF${Date.now()}`,
+      transactionId: transactionId,
+      refundAmount: refundAmount,
+      status: "Processing"
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Check Transaction Status
+export const checkTransactionStatus = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const merchantId = req.user.id;
+
+    const transaction = await Transaction.findOne({ 
+      transactionId, 
+      merchantId 
+    });
+
     if (!transaction) {
       return res.status(404).json({ message: "Transaction not found" });
     }
@@ -248,7 +271,6 @@ export const checkTransactionStatus = async (req, res) => {
       txnRefId: transaction.txnRefId,
       createdAt: transaction.createdAt
     });
-
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -257,22 +279,25 @@ export const checkTransactionStatus = async (req, res) => {
 // Webhook handler for payment notifications
 export const handlePaymentWebhook = async (req, res) => {
   try {
-    const { transactionId, status, upiId, amount, txnRefId } = req.body;
+    const { transactionId, status, upiId, amount, txnRefId, customerName, customerVpa, customerContact } = req.body;
 
     console.log("🟡 Webhook Received:", req.body);
 
     let transaction;
-    
+
     if (transactionId) {
       transaction = await Transaction.findOne({ transactionId });
     } else if (txnRefId) {
       transaction = await Transaction.findOne({ txnRefId });
     }
-    
+
     if (transaction) {
       transaction.status = status;
       if (upiId) transaction.upiId = upiId;
       if (amount) transaction.amount = amount;
+      if (customerName) transaction.customerName = customerName;
+      if (customerVpa) transaction.customerVpa = customerVpa;
+      if (customerContact) transaction.customerContact = customerContact;
       transaction.updatedAt = new Date();
       
       await transaction.save();
@@ -281,7 +306,6 @@ export const handlePaymentWebhook = async (req, res) => {
     }
 
     res.json({ code: 200, message: "Webhook processed successfully" });
-
   } catch (error) {
     console.error("❌ Webhook Error:", error);
     res.status(500).json({ message: "Webhook processing failed" });
