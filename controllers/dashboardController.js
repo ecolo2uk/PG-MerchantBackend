@@ -611,7 +611,7 @@ export const getMerchantAnalytics = async (req, res) => {
           },
           totalRefundAmount: {
             $sum: { 
-              $cond: [{ $eq: ["$status", "REFUND"] }, "$amount", 0] 
+              $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, "$amount", 0] 
             }
           },
           totalSuccessOrders: {
@@ -631,7 +631,7 @@ export const getMerchantAnalytics = async (req, res) => {
           },
           totalRefundOrders: {
             $sum: { 
-              $cond: [{ $eq: ["$status", "REFUND"] }, 1, 0] 
+              $cond: [{ $in: ["$status", ["REFUND", "Refund"]] }, 1, 0] 
             }
           },
           totalTransactions: { $sum: 1 }
