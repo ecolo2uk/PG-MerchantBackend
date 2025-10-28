@@ -126,7 +126,7 @@ export const getDashboardAnalytics = async (req, res) => {
           },
           totalRefundAmount: {
             $sum: { 
-              $cond: [{ $eq: ["$status", ["REFUND", "Refund"]] }, "$amount", 0] 
+              $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, "$amount", 0] 
             }
           },
           totalSuccessOrders: {
@@ -146,7 +146,7 @@ export const getDashboardAnalytics = async (req, res) => {
           },
           totalRefundOrders: {
             $sum: { 
-              $cond: [{ $eq: ["$status", "REFUND"] }, 1, 0] 
+              $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, 1, 0] 
             }
           },
           totalTransactions: { $sum: 1 }
@@ -548,7 +548,6 @@ export const debugDataStructure = async (req, res) => {
   }
 };
 
-// Merchant Analytics - FIXED VERSION
 export const getMerchantAnalytics = async (req, res) => {
   try {
     let { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
@@ -585,7 +584,6 @@ export const getMerchantAnalytics = async (req, res) => {
 
     console.log('🔍 Final Match Query for merchant analytics:', JSON.stringify(matchQuery, null, 2));
 
-    // Check if transactions exist for this merchant
     const totalTransactions = await Transaction.countDocuments(matchQuery);
     console.log(`📊 Found ${totalTransactions} transactions for merchant ${merchantId}`);
 
@@ -631,7 +629,7 @@ export const getMerchantAnalytics = async (req, res) => {
           },
           totalRefundOrders: {
             $sum: { 
-              $cond: [{ $in: ["$status", ["REFUND", "Refund"]] }, 1, 0] 
+              $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, 1, 0] 
             }
           },
           totalTransactions: { $sum: 1 }
@@ -726,7 +724,6 @@ const getGroupingForSalesReport = (timeFilter) => {
     }
 };
 
-// Sales Report - FIXED VERSION
 export const getSalesReport = async (req, res) => {
     try {
         const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
@@ -766,7 +763,12 @@ export const getSalesReport = async (req, res) => {
                     },
                     totalCostOfSales: {
                         $sum: {
-                            $cond: [{ $in: ["$status", ["Failed", "FAILED", "Refund", "REFUND"]] }, "$amount", 0]
+                            $cond: [{ $in: ["$status", ["Failed", "FAILED"]] }, "$amount", 0]
+                        }
+                    },
+                    totalRefundAmount: {
+                        $sum: {
+                            $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, "$amount", 0]
                         }
                     },
                     totalPendingAmount: {
@@ -781,11 +783,11 @@ export const getSalesReport = async (req, res) => {
                     failedCount: {
                         $sum: { $cond: [{ $in: ["$status", ["Failed", "FAILED"]] }, 1, 0] }
                     },
-                    pendingCount: {
-                        $sum: { $cond: [{ $in: ["$status", ["Pending", "PENDING"]] }, 1, 0] }
-                    },
                     refundCount: {
                         $sum: { $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, 1, 0] }
+                    },
+                    pendingCount: {
+                        $sum: { $cond: [{ $in: ["$status", ["Pending", "PENDING"]] }, 1, 0] }
                     }
                 }
             },
@@ -804,12 +806,13 @@ export const getSalesReport = async (req, res) => {
                     hour: "$_id.hour",
                     totalIncome: { $ifNull: ["$totalIncome", 0] },
                     totalCostOfSales: { $ifNull: ["$totalCostOfSales", 0] },
+                    totalRefundAmount: { $ifNull: ["$totalRefundAmount", 0] },
                     totalPendingAmount: { $ifNull: ["$totalPendingAmount", 0] },
                     totalAmount: { $ifNull: ["$totalAmount", 0] },
                     successCount: 1,
                     failedCount: 1,
-                    pendingCount: 1,
-                    refundCount: 1
+                    refundCount: 1,
+                    pendingCount: 1
                 }
             },
             { $sort: { date: 1 } }
@@ -823,7 +826,8 @@ export const getSalesReport = async (req, res) => {
                 totalEntries: salesReport.length,
                 totalIncome: salesReport.reduce((sum, item) => sum + item.totalIncome, 0),
                 totalPending: salesReport.reduce((sum, item) => sum + item.totalPendingAmount, 0),
-                totalCost: salesReport.reduce((sum, item) => sum + item.totalCostOfSales, 0)
+                totalCost: salesReport.reduce((sum, item) => sum + item.totalCostOfSales, 0),
+                totalRefund: salesReport.reduce((sum, item) => sum + item.totalRefundAmount, 0)
             });
         } else {
             console.log('📊 No sales report data found for the given filters');
