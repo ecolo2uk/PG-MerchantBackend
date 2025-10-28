@@ -126,7 +126,7 @@ export const getDashboardAnalytics = async (req, res) => {
           },
           totalRefundAmount: {
             $sum: { 
-              $cond: [{ $eq: ["$status", "REFUND"] }, "$amount", 0] 
+              $cond: [{ $eq: ["$status", ["REFUND", "Refund"]] }, "$amount", 0] 
             }
           },
           totalSuccessOrders: {
