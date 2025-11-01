@@ -23,7 +23,7 @@ export const getTransactions = async (req, res) => {
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = "Payment for Order", merchantOrderId } = req.body;
-    const merchantId = req.user.id; // From authenticated request
+    const merchantId = req.user.id;
     const merchantName = `${req.user.firstname} ${req.user.lastname}`;
 
     console.log("🟡 Dynamic QR Request from:", merchantName, req.body);
@@ -42,7 +42,7 @@ export const generateDynamicQR = async (req, res) => {
     // Create proper UPI URL
     const upiUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
 
-    // Create transaction record with merchant info
+    // Create transaction record - MATCHING SCHEMA FIELDS
     const transaction = new Transaction({
       transactionId: transactionId,
       merchantOrderId: merchantOrderId || `ORDER${Date.now()}`,
@@ -51,12 +51,14 @@ export const generateDynamicQR = async (req, res) => {
       merchantName: merchantName,
       amount: parseFloat(amount),
       status: "Pending",
-      txnNote,
-      txnRefId,
+      txnNote: txnNote,
+      txnRefId: txnRefId,
       upiId: "enpay1.skypal@fino",
       qrCode: upiUrl,
       paymentUrl: upiUrl,
-      currency: "INR"
+      currency: "INR",
+      merchantVpa: "enpay1.skypal@fino"
+      // customerName, customerVpa, customerContact will be added later via webhook
     });
 
     await transaction.save();
@@ -82,6 +84,12 @@ export const generateDynamicQR = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Dynamic QR Error:", error);
+    
+    // More detailed error logging
+    if (error.name === 'ValidationError') {
+      console.error('Validation Error Details:', error.errors);
+    }
+    
     res.status(500).json({
       code: 500,
       message: "QR generation failed: " + error.message
@@ -89,7 +97,6 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-// Default QR with Merchant Info
 export const generateDefaultQR = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -104,7 +111,7 @@ export const generateDefaultQR = async (req, res) => {
     // Create UPI URL without amount
     const upiUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
 
-    // Create default transaction with merchant info
+    // Create default transaction - MATCHING SCHEMA FIELDS
     const transaction = new Transaction({
       transactionId: transactionId,
       merchantOrderId: `ORDER${Date.now()}`,
@@ -118,7 +125,8 @@ export const generateDefaultQR = async (req, res) => {
       upiId: "enpay1.skypal@fino",
       qrCode: upiUrl,
       paymentUrl: upiUrl,
-      currency: "INR"
+      currency: "INR",
+      merchantVpa: "enpay1.skypal@fino"
     });
 
     await transaction.save();
@@ -143,6 +151,11 @@ export const generateDefaultQR = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Default QR Error:", error);
+    
+    if (error.name === 'ValidationError') {
+      console.error('Validation Error Details:', error.errors);
+    }
+    
     res.status(500).json({
       code: 500,
       message: "Default QR generation failed: " + error.message
