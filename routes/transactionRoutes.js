@@ -8,7 +8,8 @@ import {
   handlePaymentWebhook,
   getTransactionDetails,
   downloadReceipt,
-  initiateRefund
+  initiateRefund,
+  debugTransactions
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -22,7 +23,7 @@ router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatu
 router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
 router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
 router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
-
+router.get("/debug", authenticateMerchant, debugTransactions);
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
 

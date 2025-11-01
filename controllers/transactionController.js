@@ -19,7 +19,6 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// Generate Dynamic QR Code with Merchant Info
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = "Payment for Order", merchantOrderId } = req.body;
@@ -36,33 +35,49 @@ export const generateDynamicQR = async (req, res) => {
     }
 
     // Generate unique IDs
-    const transactionId = generateTransactionId();
-    const txnRefId = generateTxnRefId();
+    const transactionId = `TRN${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const txnRefId = `TXN${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-    // Create proper UPI URL
+    // Create proper UPI URL - FIXED URL FORMAT
     const upiUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
 
-    // Create transaction record - MATCHING SCHEMA FIELDS
-    const transaction = new Transaction({
-      transactionId: transactionId,
+    console.log("🟡 Creating transaction with UPI URL:", upiUrl);
+
+    // Create transaction record - WITH CORRECT FIELD NAMES
+    const transactionData = {
+      transactionId,
       merchantOrderId: merchantOrderId || `ORDER${Date.now()}`,
-      merchantHashId: process.env.MERCHANT_HASH_ID || "default_merchant_hash",
-      merchantId: merchantId,
-      merchantName: merchantName,
+      merchantHashId: process.env.MERCHANT_HASH_ID || "MERCDSH51Y7CD4YJLFIZR8NF",
+      merchantId: merchantId, // Keep as is (ObjectId or String)
+      merchantName,
       amount: parseFloat(amount),
       status: "Pending",
-      txnNote: txnNote,
-      txnRefId: txnRefId,
-      upiId: "enpay1.skypal@fino",
+      txnNote: txnNote, // CORRECT: txnNote (not txNNote)
+      txnRefId: txnRefId, // CORRECT: txnRefId (not txNbefId)
+      upiId: "enpay1.skypal@fino", // CORRECT: upiId (not upId)
       qrCode: upiUrl,
       paymentUrl: upiUrl,
       currency: "INR",
       merchantVpa: "enpay1.skypal@fino"
-      // customerName, customerVpa, customerContact will be added later via webhook
-    });
+    };
+
+    console.log("🟡 Transaction Data:", transactionData);
+
+    const transaction = new Transaction(transactionData);
+    
+    // Validate before saving
+    const validationError = transaction.validateSync();
+    if (validationError) {
+      console.error("❌ Validation Error Details:", validationError.errors);
+      return res.status(400).json({
+        code: 400,
+        message: "Validation failed",
+        errors: validationError.errors
+      });
+    }
 
     await transaction.save();
-    console.log("✅ Dynamic QR Transaction Saved for:", merchantName);
+    console.log("✅ Transaction Saved Successfully:", transaction.transactionId);
 
     res.json({
       code: 200,
@@ -83,11 +98,15 @@ export const generateDynamicQR = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Dynamic QR Error:", error);
+    console.error("❌ QR Generation Error:", error);
     
-    // More detailed error logging
     if (error.name === 'ValidationError') {
-      console.error('Validation Error Details:', error.errors);
+      console.error('🔴 Mongoose Validation Errors:', error.errors);
+      return res.status(400).json({
+        code: 400,
+        message: "Document validation failed",
+        errors: error.errors
+      });
     }
     
     res.status(500).json({
@@ -322,5 +341,21 @@ export const handlePaymentWebhook = async (req, res) => {
   } catch (error) {
     console.error("❌ Webhook Error:", error);
     res.status(500).json({ message: "Webhook processing failed" });
+  }
+};
+// Debug route to check current data and schema
+export const debugTransactions = async (req, res) => {
+  try {
+    const transactions = await Transaction.find().limit(5);
+    const sample = await Transaction.findOne();
+    
+    res.json({
+      totalCount: await Transaction.countDocuments(),
+      sampleTransaction: sample,
+      recentTransactions: transactions,
+      schemaPaths: Object.keys(Transaction.schema.paths)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
