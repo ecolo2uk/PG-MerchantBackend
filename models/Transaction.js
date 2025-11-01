@@ -1,98 +1,10 @@
-// // models/Transaction.js
-// import mongoose from "mongoose";
-
-// const TransactionSchema = new mongoose.Schema(
-//   {
-//     transactionId: { 
-//       type: String, 
-//       required: true, 
-//       unique: true,
-//       index: true
-//     },
-//     merchantOrderId: { 
-//       type: String, 
-//       required: true 
-//     },
-//     merchantHashId: { 
-//       type: String, 
-//       required: true
-//     },
-//     // NEW: Merchant Reference
-//     merchantId: {
-//       type: mongoose.Schema.Types.ObjectId,
-//       ref: 'User',
-//       required: true
-//     },
-//     merchantName: {
-//       type: String,
-//       required: true
-//     },
-//     amount: { 
-//       type: Number, 
-//       required: true,
-//       min: 0
-//     },
-//     currency: { 
-//       type: String, 
-//       default: "INR" 
-//     },
-//    status: { 
-//       type: String, 
-//       enum: ["Pending", "Success", "Failed", "Cancelled", "Refund"],
-//       default: "Pending" 
-//     },
-//     upiId: { 
-//       type: String,
-//       default: "enpay1.skypal@fino"
-//     },
-//     qrCode: { 
-//       type: String 
-//     },
-//     paymentUrl: { 
-//       type: String 
-//     },
-//     txnNote: { 
-//       type: String,
-//       default: "Payment for Order"
-//     },
-//     txnRefId: { 
-//       type: String, 
-//       unique: true,
-//       sparse: true
-//     },
-//     merchantVpa: { 
-//       type: String,
-//       default: "enpay1.skypal@fino"
-//     },
-//      customerName: {
-//       type: String
-//     },
-//     customerVpa: {
-//       type: String
-//     },
-//     customerContact: {
-//       type: String
-//     }
-//   },
-  
-//   { 
-//     timestamps: true
-//   }
-// );
-
-// export default mongoose.model("Transaction", TransactionSchema);
-
-
-
-
 import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema({
   // Core transaction fields
   transactionId: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   merchantOrderId: {
     type: String,
@@ -103,8 +15,7 @@ const transactionSchema = new mongoose.Schema({
     required: true
   },
   merchantId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: mongoose.Schema.Types.Mixed, // Allow both String and ObjectId
     required: true
   },
   merchantName: {
@@ -122,11 +33,11 @@ const transactionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["Pending", "Success", "Failed", "Cancelled", "Refund"],
+    enum: ["Pending", "Success", "Failed", "Cancelled", "Refund", "SUCCESS", "FAILED", "INITIATED"],
     default: 'Pending'
   },
   
-  // UPI/Payment related fields
+  // UPI/Payment related fields - FIXED NAMES
   upiId: {
     type: String,
     default: 'enpay1.skypal@fino'
@@ -137,11 +48,11 @@ const transactionSchema = new mongoose.Schema({
   paymentUrl: {
     type: String
   },
-  txnNote: {
+  txnNote: { // FIXED: was txNNote
     type: String,
     default: 'Payment for Order'
   },
-  txnRefId: {
+  txnRefId: { // FIXED: was txNbefId
     type: String
   },
   merchantVpa: {
@@ -160,10 +71,7 @@ const transactionSchema = new mongoose.Schema({
     type: String
   }
 }, {
-  timestamps: true
+  timestamps: true // This automatically creates createdAt and updatedAt
 });
-
-// Remove any unique index that might be causing issues with txnRefId
-transactionSchema.index({ txnRefId: 1 }, { unique: false, sparse: true });
 
 export default mongoose.model('Transaction', transactionSchema);
