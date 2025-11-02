@@ -6,22 +6,18 @@ import EnpayService from "../services/enpayService.js";
 const generateUniqueId = (prefix) => `${prefix}${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-// =========================================================================
-// GET ALL TRANSACTIONS
-// =========================================================================
 export const getTransactions = async (req, res) => {
   try {
-    const merchantId = req.user.id; // Assuming req.user.id is set by auth middleware
-    console.log("🟡 Fetching transactions for merchant:", merchantId);
+    const merchantId = req.user.id;
+    console.log("🟡 Fetching transactions for merchant ID (from token):", merchantId);
+    console.log("🟡 Type of merchantId:", typeof merchantId); // Check type
 
     const transactions = await Transaction.find({ merchantId })
       .sort({ createdAt: -1 })
-      .select('-__v'); // Exclude __v field
+      .select('-__v');
 
     console.log(`✅ Found ${transactions.length} transactions for merchant ${merchantId}`);
-
-    res.json(transactions);
-
+    // ... rest of code
   } catch (error) {
     console.error("❌ Error fetching transactions:", error);
     res.status(500).json({
@@ -31,11 +27,6 @@ export const getTransactions = async (req, res) => {
     });
   }
 };
-
-// controllers/transactionController.js
-
-// ... (lines above) ...
-
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount: rawAmount, txnNote = "Payment for Order" } = req.body; // Rename 'amount' to 'rawAmount' for clarity
