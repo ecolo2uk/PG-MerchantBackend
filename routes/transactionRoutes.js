@@ -14,12 +14,13 @@ import {
   debugQRGeneration,
   analyzeSchema,
   simulatePaymentWebhook,
-  listAllEndpoints
+  listAllEndpoints,
+  testAmountEndpoint
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
-
+router.post("/test-amount", authenticateMerchant, testAmountEndpoint);
 // All routes protected with merchant authentication
 router.get("/", authenticateMerchant, getTransactions);
 router.post("/generate-qr", authenticateMerchant, generateDynamicQR);

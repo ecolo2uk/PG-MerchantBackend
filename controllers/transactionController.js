@@ -35,38 +35,41 @@ export const getTransactions = async (req, res) => {
 
 export const generateDynamicQR = async (req, res) => {
   try {
+    console.log("🟡 generateDynamicQR - Raw request body:", req.body);
+    console.log("🟡 Headers:", req.headers);
+
     const { amount, txnNote = "Payment for Order" } = req.body;
     const merchantId = req.user.id;
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
-    console.log("🟡 Dynamic QR Request:", { merchantId, merchantName, amount, txnNote, body: req.body });
+    console.log("🟡 Extracted values - amount:", amount, "type:", typeof amount);
 
-    // FIXED: More flexible amount validation
-    if (amount === undefined || amount === null || amount === '') {
+    // FIXED: Ultra-flexible amount handling
+    let parsedAmount;
+
+    if (amount === undefined || amount === null) {
       return res.status(400).json({
         code: 400,
         message: "Amount is required"
       });
     }
 
-    // FIXED: Handle different input types
-    let parsedAmount;
-    if (typeof amount === 'string') {
-      parsedAmount = parseFloat(amount);
-    } else if (typeof amount === 'number') {
+    // Try multiple parsing methods
+    if (typeof amount === 'number') {
       parsedAmount = amount;
+    } else if (typeof amount === 'string') {
+      parsedAmount = parseFloat(amount);
     } else {
-      return res.status(400).json({
-        code: 400,
-        message: "Amount must be a valid number"
-      });
+      // Last resort - convert to string and parse
+      parsedAmount = parseFloat(String(amount));
     }
 
-    // FIXED: Check for NaN after parsing
+    console.log("🟡 After parsing - parsedAmount:", parsedAmount, "isNaN:", isNaN(parsedAmount));
+
     if (isNaN(parsedAmount)) {
       return res.status(400).json({
         code: 400,
-        message: "Invalid amount format. Please enter a valid number."
+        message: `Invalid amount format. Received: ${amount} (type: ${typeof amount})`
       });
     }
 
@@ -77,19 +80,17 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    console.log("✅ Amount validated:", { original: amount, parsed: parsedAmount });
+    console.log("✅ Amount validation passed:", parsedAmount);
 
-    // Generate unique IDs
+    // Continue with the rest of your function...
     const transactionId = generateTransactionId();
     const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-    // Create UPI URL (for the QR image)
     const upiId = "enpay1.skypal@fino";
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Data for QrTransaction collection
     const qrTransactionData = {
       transactionId: transactionId,
       merchantId: merchantId,
@@ -109,54 +110,14 @@ export const generateDynamicQR = async (req, res) => {
       "Settlement Status": "NA"
     };
 
-    // FIXED: Enpay service call
-    let enpayInitiationStatus = 'NOT_ATTEMPTED';
-    let enpayError = null;
-    let enpayQRCode = null;
+    console.log("🟡 QR Transaction data:", qrTransactionData);
 
-    try {
-      const enpayResponse = await EnpayService.generateDynamicQR({
-        amount: parsedAmount,
-        txnNote: txnNote,
-        txnRefId: txnRefId
-      });
-
-      if (enpayResponse.success) {
-        enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
-        enpayQRCode = enpayResponse.qrCode;
-        console.log("✅ Enpay dynamic QR generated successfully.");
-      } else {
-        enpayInitiationStatus = 'ATTEMPTED_FAILED';
-        enpayError = enpayResponse.error || "Unknown Enpay error";
-        console.warn("⚠️ Enpay dynamic QR failed but QR generated locally:", enpayError);
-      }
-    } catch (enpayServiceError) {
-      enpayInitiationStatus = 'ATTEMPTED_FAILED';
-      enpayError = enpayServiceError.message;
-      console.error("❌ Error calling EnpayService:", enpayServiceError.message);
-    }
-
-    qrTransactionData.enpayInitiationStatus = enpayInitiationStatus;
-    qrTransactionData.enpayError = enpayError;
-    if (enpayQRCode) {
-      qrTransactionData.enpayQRCode = enpayQRCode;
-    }
-
-    console.log("🟡 Saving to QR transactions collection...", qrTransactionData);
-    
-    // Validate and save
+    // Save to database
     const qrTransaction = new QrTransaction(qrTransactionData);
-    
-    const validationError = qrTransaction.validateSync();
-    if (validationError) {
-      console.error("❌ Validation Error:", validationError.errors);
-      throw new Error(`Validation failed: ${JSON.stringify(validationError.errors)}`);
-    }
-    
     await qrTransaction.save();
-    console.log("✅ Successfully saved to QR transactions collection");
 
-    // Return response
+    console.log("✅ QR transaction saved successfully");
+
     res.json({
       code: 200,
       message: "QR generated successfully",
@@ -174,9 +135,8 @@ export const generateDynamicQR = async (req, res) => {
         merchantOrderId: qrTransaction.merchantOrderId
       },
       qrCode: qrCodeUrl,
-      enpayQRCode: enpayQRCode,
       upiUrl: paymentUrl,
-      enpayInitiated: enpayInitiationStatus === 'ATTEMPTED_SUCCESS'
+      enpayInitiated: false
     });
 
   } catch (error) {
@@ -184,6 +144,52 @@ export const generateDynamicQR = async (req, res) => {
     res.status(500).json({
       code: 500,
       message: "QR generation failed",
+      error: error.message
+    });
+  }
+};
+
+// Test endpoint to debug the request
+export const testAmountEndpoint = async (req, res) => {
+  try {
+    console.log("🔍 TEST ENDPOINT - Full request details:");
+    console.log("Headers:", req.headers);
+    console.log("Body:", req.body);
+    console.log("Body type:", typeof req.body);
+    console.log("Amount value:", req.body.amount);
+    console.log("Amount type:", typeof req.body.amount);
+    console.log("Content-Type:", req.get('Content-Type'));
+
+    // Test different parsing methods
+    const amountFromBody = req.body.amount;
+    const parsedAmount = parseFloat(amountFromBody);
+    
+    console.log("Parsing test:");
+    console.log("Original amount:", amountFromBody);
+    console.log("Parsed amount:", parsedAmount);
+    console.log("Is NaN:", isNaN(parsedAmount));
+
+    res.json({
+      code: 200,
+      message: "Test endpoint working",
+      receivedBody: req.body,
+      amountDetails: {
+        original: amountFromBody,
+        type: typeof amountFromBody,
+        parsed: parsedAmount,
+        isNumber: typeof parsedAmount === 'number' && !isNaN(parsedAmount),
+        isValid: typeof parsedAmount === 'number' && !isNaN(parsedAmount) && parsedAmount > 0
+      },
+      headers: {
+        contentType: req.get('Content-Type'),
+        authorization: req.get('Authorization') ? 'Present' : 'Missing'
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Test endpoint error:", error);
+    res.status(500).json({
+      code: 500,
       error: error.message
     });
   }
