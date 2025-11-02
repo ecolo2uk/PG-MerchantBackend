@@ -76,11 +76,17 @@ const mainTransactionSchema = new mongoose.Schema({
     enum: ["Settled", "Unsettled", "NA"],
     default: "Unsettled"
   },
-  "Vendor Ref ID": { // From your original schema
-    type: String,
-    required: true,
-    default: function() { return this.txnRefId || `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`; }
-  },
+  "mid": {
+  type: String,
+  required: true,
+  default: function() { return `MID${Date.now()}`; }
+},
+"Vendor Ref ID": {
+  type: String,
+  required: true,
+  default: function() { return this.txnRefId || `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`; }
+},
+
   "Failure Reasons": {
     type: String,
     default: null
