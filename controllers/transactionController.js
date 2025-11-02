@@ -32,31 +32,36 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// =========================================================================
-// GENERATE DYNAMIC QR CODE (WITH AMOUNT)
-// =========================================================================
+// controllers/transactionController.js
+
+// ... (lines above) ...
+
 export const generateDynamicQR = async (req, res) => {
   try {
-    const { amount, txnNote = "Payment for Order" } = req.body;
-    const merchantId = req.user.id; // Assuming req.user.id is set by auth middleware
+    const { amount: rawAmount, txnNote = "Payment for Order" } = req.body; // Rename 'amount' to 'rawAmount' for clarity
+    const merchantId = req.user.id;
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
-    console.log("🟡 Dynamic QR Request:", { merchantId, merchantName, amount, txnNote });
+    console.log("🟡 Dynamic QR Request:", { merchantId, merchantName, rawAmount, txnNote });
 
-    if (!amount || parseFloat(amount) <= 0) {
+    const parsedAmount = parseFloat(rawAmount); // Parse the raw input once here
+
+    // --- IMPORTANT: Explicitly check for NaN and non-positive values ---
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({
         code: 400,
-        message: "Valid amount is required and must be greater than 0"
+        message: "Valid amount is required and must be a number greater than 0"
       });
     }
 
     // Generate unique IDs
-    const transactionId = generateUniqueId("TXN"); // Your internal unique ID
-    const txnRefId = generateTxnRefId(); // Your internal transaction reference ID
-    const merchantOrderId = generateUniqueId("ORDER"); // Enpay requires a unique merchantOrderId
+    const transactionId = generateUniqueId("TXN");
+    const txnRefId = generateTxnRefId();
+    const merchantOrderId = generateUniqueId("ORDER");
 
-    const upiId = "enpay1.skypal@fino"; // Your default UPI ID
-    const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parseFloat(amount).toFixed(2)}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
+    const upiId = "enpay1.skypal@fino";
+    // Use parsedAmount here
+    const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount.toFixed(2)}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
     // Prepare data for saving to your MAIN Transaction collection
@@ -64,81 +69,23 @@ export const generateDynamicQR = async (req, res) => {
       transactionId: transactionId,
       merchantId: merchantId,
       merchantName: merchantName,
-      amount: parseFloat(amount),
-      status: "INITIATED", // Initial status
+      amount: parsedAmount, // Use the validated and parsed amount
+      status: "INITIATED",
       qrCode: qrCodeUrl,
-      paymentUrl: paymentUrl, // This is the upi:// link
+      paymentUrl: paymentUrl,
       txnNote: txnNote,
       txnRefId: txnRefId,
       upiId: upiId,
-      merchantVpa: upiId, // Assuming merchantVpa is the same as upiId for now
-      merchantOrderId: merchantOrderId, // Store this for Enpay
-      // Default values for other required fields from your main schema
+      merchantVpa: upiId,
+      merchantOrderId: merchantOrderId,
       "Commission Amount": 0,
       mid: `MID${Date.now()}`,
       "Settlement Status": "Unsettled",
-      "Vendor Ref ID": txnRefId, // Use txnRefId for vendor ref
-      createdAt: new Date() // Use Date object for Date type
+      "Vendor Ref ID": txnRefId,
+      createdAt: new Date()
     };
 
-    let enpayInitiated = false;
-    let enpayErrorDetails = null;
-
-    // --- Attempt to initiate collect request with Enpay ---
-    try {
-      const enpayResponse = await EnpayService.initiateCollectRequest({
-        amount: transactionData.amount, // Use the already parsed float amount
-        merchantOrderId: merchantOrderId,
-        transactionId: transactionId, // merchantTrnId for Enpay
-        txnNote: txnNote
-      });
-
-      if (enpayResponse.success) {
-        enpayInitiated = true;
-        transactionData.enpayTxnId = enpayResponse.data.enpayTxnId; // Store Enpay's ID
-        console.log("✅ Enpay collect request initiated successfully.");
-      } else {
-        enpayErrorDetails = enpayResponse.error;
-        console.warn("⚠️ Enpay collect request failed:", enpayErrorDetails);
-        // If Enpay initiation fails, the transaction status remains "INITIATED"
-        // or you might want to change it to "ENPAY_FAILED" to signify the failure.
-        // For now, let's keep it INITIATED as the QR is still generated.
-        // transactionData.status = "ENPAY_FAILED";
-      }
-    } catch (enpayError) {
-      enpayErrorDetails = enpayError.message;
-      console.error("❌ Error calling EnpayService:", enpayErrorDetails);
-      // transactionData.status = "ENPAY_FAILED";
-    }
-
-    console.log("🟡 Saving to main transactions collection:", transactionData.transactionId);
-    const newTransaction = new Transaction(transactionData);
-    await newTransaction.save();
-    console.log("✅ Successfully saved to main transactions collection.");
-
-    res.json({
-      code: 200,
-      message: "QR generated successfully",
-      transaction: {
-        transactionId: newTransaction.transactionId,
-        amount: newTransaction.amount,
-        status: newTransaction.status,
-        upiId: newTransaction.upiId,
-        txnRefId: newTransaction.txnRefId,
-        qrCode: newTransaction.qrCode,
-        paymentUrl: newTransaction.paymentUrl,
-        txnNote: newTransaction.txnNote,
-        merchantName: newTransaction.merchantName,
-        createdAt: newTransaction.createdAt,
-        merchantOrderId: newTransaction.merchantOrderId,
-        enpayTxnId: newTransaction.enpayTxnId // Include Enpay's ID if available
-      },
-      qrCode: qrCodeUrl,
-      upiUrl: paymentUrl,
-      enpayInitiated: enpayInitiated,
-      enpayError: enpayErrorDetails // Include error details for frontend debugging
-    });
-
+    // ... (rest of the function remains the same) ...
   } catch (error) {
     console.error("❌ Dynamic QR Generation Error:", error);
     res.status(500).json({
@@ -474,13 +421,37 @@ export const handleEnpaySuccess = (req, res) => {
   res.redirect('/payment-status?status=success&transactionId=' + (req.query.transactionId || ''));
 };
 
-export const debugQR = async (req, res) => {
-    try {
-        // Your debug logic here, e.g., create a dummy transaction, log info
-        console.log("Debug QR endpoint hit with payload:", req.body);
-        res.json({ code: 200, message: "Debug QR received", data: req.body });
-    } catch (error) {
-        console.error("Debug QR error:", error);
-        res.status(500).json({ code: 500, message: "Debug QR failed", error: error.message });
-    }
+// ... (existing imports and functions) ...
+
+// =========================================================================
+// DEBUG QR GENERATION (FOR TESTING ONLY)
+// =========================================================================
+export const debugQRController = async (req, res) => {
+  try {
+    const { amount, txnNote } = req.body;
+    console.log("🔍 Debug QR Endpoint Hit:", { amount, txnNote, userId: req.user?.id });
+
+    // You can add more sophisticated debug logic here, e.g., create a dummy transaction,
+    // simulate a webhook, or just return the payload received.
+    res.json({
+      code: 200,
+      message: "Debug QR request received successfully. Payload echoed.",
+      receivedPayload: req.body,
+      // You could also generate a mock QR data here if desired
+      mockQR: {
+        upiId: "debug@upi",
+        amount: amount,
+        txnRefId: "DEBUGREF123",
+        paymentUrl: `upi://pay?pa=debug@upi&am=${amount}&tn=DebugTest`,
+        merchantName: "Debug Merchant"
+      }
+    });
+  } catch (error) {
+    console.error("❌ Debug QR Error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Debug QR generation failed on backend",
+      error: error.message
+    });
+  }
 };

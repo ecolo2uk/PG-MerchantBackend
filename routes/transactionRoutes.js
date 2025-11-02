@@ -8,7 +8,7 @@ import {
   simulatePaymentWebhook,
   handleEnpayReturn,
   handleEnpaySuccess,
-  debugQR
+  debugQRController
 } from '../controllers/transactionController.js';
 
 import { authenticateMerchant } from '../middleware/authMiddleware.js'; // <-- Import your middleware
@@ -29,6 +29,6 @@ router.get('/', authenticateMerchant, getTransactions); // <-- Apply authenticat
 router.post('/generate-dynamic-qr', authenticateMerchant, generateDynamicQR); // <-- Apply authenticateMerchant
 router.post('/generate-default-qr', authenticateMerchant, generateDefaultQR); // <-- Apply authenticateMerchant
 router.post('/simulate-webhook', authenticateMerchant, simulatePaymentWebhook); // <-- Apply authenticateMerchant
-router.post('/debug-qr', authenticateMerchant, debugQR);
+router.post('/debug-qr', authenticateMerchant, debugQRController);
 
 export default router;
