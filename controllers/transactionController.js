@@ -161,11 +161,9 @@ export const generateDynamicQR = async (req, res) => {
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-   
-    // Save to QR collection
-   const qrTransactionData = {
+    const qrTransactionData = {
       transactionId,
-      merchantId: new mongoose.Types.ObjectId(merchantId), // 🔥 ObjectId मध्ये convert करा
+      merchantId,
       merchantName,
       amount: parsedAmount,
       status: "GENERATED",
@@ -182,17 +180,12 @@ export const generateDynamicQR = async (req, res) => {
       "Settlement Status": "NA"
     };
 
-    // QR Transaction save करा
+    // Save to QR collection
     const qrTransaction = new QrTransaction(qrTransactionData);
     await qrTransaction.save();
 
-    // 🔥 CRITICAL: Main Transaction मध्ये sync करा
-    const mainTransaction = await syncQrTransactionToMain(qrTransaction, {});
-    
-    if (!mainTransaction) {
-      console.error("Failed to sync to main transaction");
-      // But still return success for QR
-    }
+    // 🔥 CRITICAL: Immediately sync to main Transaction collection
+    await syncQrTransactionToMain(qrTransaction, {});
 
     res.json({
       code: 200,
@@ -212,8 +205,7 @@ export const generateDynamicQR = async (req, res) => {
       },
       qrCode: qrCodeUrl,
       upiUrl: paymentUrl,
-      enpayInitiated: false,
-      syncedToMain: !!mainTransaction // 🔥 Sync status दाखवा
+      enpayInitiated: false
     });
 
   } catch (error) {
