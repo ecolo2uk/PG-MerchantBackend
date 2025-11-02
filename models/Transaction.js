@@ -29,7 +29,7 @@ const transactionSchema = new mongoose.Schema({
   },
   mid: {
     type: String,
-    required: true
+    required: true // FIXED: Add required
   },
   "Settlement Status": {
     type: String,
@@ -49,11 +49,11 @@ const transactionSchema = new mongoose.Schema({
   },
   "Vendor Ref ID": {
     type: String,
-    required: true
+    required: true // FIXED: Add required
   },
   // Optional fields
   "Customer Contact No": {
-    type: mongoose.Schema.Types.Mixed // Can be Object or String
+    type: mongoose.Schema.Types.Mixed
   },
   "Customer Name": {
     type: String
@@ -67,7 +67,7 @@ const transactionSchema = new mongoose.Schema({
   "Vendor Txn ID": {
     type: String
   },
-  // Additional fields for functionality
+  // Additional fields
   merchantOrderId: {
     type: String
   },

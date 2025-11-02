@@ -37,7 +37,7 @@ const qrTransactionSchema = new mongoose.Schema({
   },
   txnRefId: {
     type: String,
-    required: true
+    required: true // FIXED: Add required
   },
   upiId: {
     type: String,
@@ -53,11 +53,11 @@ const qrTransactionSchema = new mongoose.Schema({
   },
   mid: {
     type: String,
-    required: true
+    required: true // FIXED: Add required
   },
   "Vendor Ref ID": {
     type: String,
-    required: true
+    required: true // FIXED: Add required
   },
   "Commission Amount": {
     type: Number,

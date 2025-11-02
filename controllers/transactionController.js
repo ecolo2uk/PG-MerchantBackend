@@ -35,18 +35,18 @@ export const getTransactions = async (req, res) => {
 
 export const generateDynamicQR = async (req, res) => {
   try {
-    console.log("🟡 generateDynamicQR - Raw request body:", req.body);
-    console.log("🟡 Headers:", req.headers);
+    console.log("🟡 generateDynamicQR - Full request:", {
+      body: req.body,
+      headers: req.headers
+    });
 
     const { amount, txnNote = "Payment for Order" } = req.body;
     const merchantId = req.user.id;
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
-    console.log("🟡 Extracted values - amount:", amount, "type:", typeof amount);
+    console.log("🟡 Extracted values:", { amount, txnNote, merchantId, merchantName });
 
-    // FIXED: Ultra-flexible amount handling
-    let parsedAmount;
-
+    // FIXED: Simple and robust amount validation
     if (amount === undefined || amount === null) {
       return res.status(400).json({
         code: 400,
@@ -54,22 +54,13 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    // Try multiple parsing methods
-    if (typeof amount === 'number') {
-      parsedAmount = amount;
-    } else if (typeof amount === 'string') {
-      parsedAmount = parseFloat(amount);
-    } else {
-      // Last resort - convert to string and parse
-      parsedAmount = parseFloat(String(amount));
-    }
-
-    console.log("🟡 After parsing - parsedAmount:", parsedAmount, "isNaN:", isNaN(parsedAmount));
+    const parsedAmount = parseFloat(amount);
+    console.log("🟡 Parsed amount:", parsedAmount);
 
     if (isNaN(parsedAmount)) {
       return res.status(400).json({
         code: 400,
-        message: `Invalid amount format. Received: ${amount} (type: ${typeof amount})`
+        message: `Invalid amount: ${amount}. Please enter a valid number.`
       });
     }
 
@@ -82,30 +73,36 @@ export const generateDynamicQR = async (req, res) => {
 
     console.log("✅ Amount validation passed:", parsedAmount);
 
-    // Continue with the rest of your function...
+    // Generate all required IDs
     const transactionId = generateTransactionId();
     const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const mid = generateMid();
+    const vendorRefId = generateVendorRefId();
 
+    console.log("🟡 Generated IDs:", { transactionId, txnRefId, merchantOrderId, mid, vendorRefId });
+
+    // Create UPI URL and QR code
     const upiId = "enpay1.skypal@fino";
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
+    // Create transaction data with ALL required fields
     const qrTransactionData = {
-      transactionId: transactionId,
-      merchantId: merchantId,
-      merchantName: merchantName,
+      transactionId,
+      merchantId,
+      merchantName,
       amount: parsedAmount,
       status: "GENERATED",
       qrCode: qrCodeUrl,
-      paymentUrl: paymentUrl,
-      txnNote: txnNote,
-      txnRefId: txnRefId,
-      upiId: upiId,
+      paymentUrl,
+      txnNote,
+      txnRefId, // Required field
+      upiId,
       merchantVpa: upiId,
-      merchantOrderId: merchantOrderId,
-      mid: generateMid(),
-      "Vendor Ref ID": generateVendorRefId(),
+      merchantOrderId,
+      mid, // Required field
+      "Vendor Ref ID": vendorRefId, // Required field
       "Commission Amount": 0,
       "Settlement Status": "NA"
     };
