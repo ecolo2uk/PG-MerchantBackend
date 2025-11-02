@@ -33,31 +33,51 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// In your generateDynamicQR function - UPDATE THIS PART
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = "Payment for Order" } = req.body;
     const merchantId = req.user.id;
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
-    console.log("🟡 Dynamic QR Request:", { merchantId, merchantName, amount, txnNote });
+    console.log("🟡 Dynamic QR Request:", { merchantId, merchantName, amount, txnNote, body: req.body });
 
-    // FIXED: Better amount validation and parsing
-    if (!amount || amount <= 0 || isNaN(amount)) {
+    // FIXED: More flexible amount validation
+    if (amount === undefined || amount === null || amount === '') {
       return res.status(400).json({
         code: 400,
-        message: "Valid amount is required and must be a number greater than 0"
+        message: "Amount is required"
       });
     }
 
-    // FIXED: Safe number parsing
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    // FIXED: Handle different input types
+    let parsedAmount;
+    if (typeof amount === 'string') {
+      parsedAmount = parseFloat(amount);
+    } else if (typeof amount === 'number') {
+      parsedAmount = amount;
+    } else {
       return res.status(400).json({
         code: 400,
-        message: "Invalid amount format"
+        message: "Amount must be a valid number"
       });
     }
+
+    // FIXED: Check for NaN after parsing
+    if (isNaN(parsedAmount)) {
+      return res.status(400).json({
+        code: 400,
+        message: "Invalid amount format. Please enter a valid number."
+      });
+    }
+
+    if (parsedAmount <= 0) {
+      return res.status(400).json({
+        code: 400,
+        message: "Amount must be greater than 0"
+      });
+    }
+
+    console.log("✅ Amount validated:", { original: amount, parsed: parsedAmount });
 
     // Generate unique IDs
     const transactionId = generateTransactionId();
@@ -69,12 +89,12 @@ export const generateDynamicQR = async (req, res) => {
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // FIXED: Data for QrTransaction collection with proper number handling
+    // Data for QrTransaction collection
     const qrTransactionData = {
       transactionId: transactionId,
       merchantId: merchantId,
       merchantName: merchantName,
-      amount: parsedAmount, // Use the safely parsed amount
+      amount: parsedAmount,
       status: "GENERATED",
       qrCode: qrCodeUrl,
       paymentUrl: paymentUrl,
@@ -89,14 +109,14 @@ export const generateDynamicQR = async (req, res) => {
       "Settlement Status": "NA"
     };
 
-    // FIXED: Enpay service call with proper amount
+    // FIXED: Enpay service call
     let enpayInitiationStatus = 'NOT_ATTEMPTED';
     let enpayError = null;
     let enpayQRCode = null;
 
     try {
       const enpayResponse = await EnpayService.generateDynamicQR({
-        amount: parsedAmount, // Use the safely parsed amount
+        amount: parsedAmount,
         txnNote: txnNote,
         txnRefId: txnRefId
       });
@@ -124,10 +144,9 @@ export const generateDynamicQR = async (req, res) => {
 
     console.log("🟡 Saving to QR transactions collection...", qrTransactionData);
     
-    // FIXED: Add validation before saving
+    // Validate and save
     const qrTransaction = new QrTransaction(qrTransactionData);
     
-    // Validate the document before saving
     const validationError = qrTransaction.validateSync();
     if (validationError) {
       console.error("❌ Validation Error:", validationError.errors);
