@@ -1,11 +1,11 @@
-// models/Transaction.js - EXACT SCHEMA MATCH
 import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema({
-  // REQUIRED FIELDS from your schema validation
-  _id: {
-    type: mongoose.Schema.Types.ObjectId,
-    auto: true
+  // REQUIRED FIELDS - Match your database schema exactly
+  transactionId: {
+    type: String,
+    required: true,
+    unique: true
   },
   amount: {
     type: Number,
@@ -23,9 +23,8 @@ const transactionSchema = new mongoose.Schema({
     default: () => new Date().toISOString()
   },
   merchantId: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true,
-    ref: 'User'
+    type: String, // Change to String to match your data
+    required: true
   },
   merchantName: {
     type: String,
@@ -51,10 +50,6 @@ const transactionSchema = new mongoose.Schema({
     enum: ["SUCCESS", "FAILED", "PENDING", "INITIATED"],
     default: "INITIATED"
   },
-  transactionId: {
-    type: String,
-    required: true
-  },
   "Vendor Ref ID": {
     type: String,
     required: true,
@@ -63,10 +58,9 @@ const transactionSchema = new mongoose.Schema({
     }
   },
 
-  // OPTIONAL FIELDS from your schema
+  // OPTIONAL FIELDS - Make them truly optional
   "Customer Contact No": {
-    type: Map,
-    of: Number,
+    type: String,
     default: null
   },
   "Customer Name": {
@@ -86,20 +80,12 @@ const transactionSchema = new mongoose.Schema({
     default: null
   },
 
-  // ADDITIONAL FIELDS for QR functionality (optional)
+  // QR FIELDS
   merchantOrderId: {
     type: String,
     default: function() {
       return `ORDER${Date.now()}`;
     }
-  },
-  merchantHashId: {
-    type: String,
-    default: "MERCDSH51Y7CD4YJLFIZR8NF"
-  },
-  currency: {
-    type: String,
-    default: 'INR'
   },
   upiId: {
     type: String,
@@ -126,12 +112,8 @@ const transactionSchema = new mongoose.Schema({
     default: 'enpay1.skypal@fino'
   }
 }, {
-  timestamps: false // We're using custom createdAt field to match schema
+  timestamps: false, // We're using custom createdAt
+  strict: false // Allow additional fields that don't match schema
 });
-
-// Indexes
-transactionSchema.index({ merchantId: 1, createdAt: -1 });
-transactionSchema.index({ transactionId: 1 });
-transactionSchema.index({ status: 1 });
 
 export default mongoose.model('Transaction', transactionSchema);

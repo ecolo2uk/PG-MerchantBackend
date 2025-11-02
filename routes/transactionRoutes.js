@@ -12,7 +12,8 @@ import {
   debugTransactions,
   checkSchema,
   debugQRGeneration,
-  analyzeSchema
+  analyzeSchema,
+  simulatePaymentWebhook
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -34,5 +35,6 @@ router.post("/debug-qr", authenticateMerchant, debugQRGeneration);
 router.get("/analyze-schema", authenticateMerchant, analyzeSchema);
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
+router.post("/simulate-webhook", authenticateMerchant, simulatePaymentWebhook);
 
 export default router;
