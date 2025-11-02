@@ -7,7 +7,55 @@ const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).sub
 const generateMid = () => `MID${Date.now()}`;
 const generateVendorRefId = () => `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-// सुधारित sync function
+export const checkSyncStatus = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    // QR Transactions
+    const qrTransactions = await QrTransaction.find({ merchantId })
+      .sort({ createdAt: -1 })
+      .limit(10);
+    
+    // Main Transactions  
+    const mainTransactions = await Transaction.find({ merchantId })
+      .sort({ createdAt: -1 })
+      .limit(10);
+    
+    // Sync status check
+    const syncStatus = await Promise.all(
+      qrTransactions.map(async (qrTxn) => {
+        const mainTxn = await Transaction.findOne({ 
+          transactionId: qrTxn.transactionId 
+        });
+        return {
+          transactionId: qrTxn.transactionId,
+          qrExists: true,
+          mainExists: !!mainTxn,
+          status: qrTxn.status,
+          amount: qrTxn.amount,
+          createdAt: qrTxn.createdAt
+        };
+      })
+    );
+    
+    res.json({
+      code: 200,
+      syncStatus: {
+        totalQR: qrTransactions.length,
+        totalMain: mainTransactions.length,
+        transactions: syncStatus
+      }
+    });
+    
+  } catch (error) {
+    console.error("Sync check error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Sync check failed",
+      error: error.message
+    });
+  }
+};
 const syncQrTransactionToMain = async (qrTransaction, webhookData) => {
   try {
     let mainTransaction;
@@ -161,9 +209,11 @@ export const generateDynamicQR = async (req, res) => {
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    const qrTransactionData = {
+   
+    // Save to QR collection
+   const qrTransactionData = {
       transactionId,
-      merchantId,
+      merchantId: new mongoose.Types.ObjectId(merchantId), // 🔥 ObjectId मध्ये convert करा
       merchantName,
       amount: parsedAmount,
       status: "GENERATED",
@@ -180,12 +230,17 @@ export const generateDynamicQR = async (req, res) => {
       "Settlement Status": "NA"
     };
 
-    // Save to QR collection
+    // QR Transaction save करा
     const qrTransaction = new QrTransaction(qrTransactionData);
     await qrTransaction.save();
 
-    // 🔥 CRITICAL: Immediately sync to main Transaction collection
-    await syncQrTransactionToMain(qrTransaction, {});
+    // 🔥 CRITICAL: Main Transaction मध्ये sync करा
+    const mainTransaction = await syncQrTransactionToMain(qrTransaction, {});
+    
+    if (!mainTransaction) {
+      console.error("Failed to sync to main transaction");
+      // But still return success for QR
+    }
 
     res.json({
       code: 200,
@@ -205,7 +260,8 @@ export const generateDynamicQR = async (req, res) => {
       },
       qrCode: qrCodeUrl,
       upiUrl: paymentUrl,
-      enpayInitiated: false
+      enpayInitiated: false,
+      syncedToMain: !!mainTransaction // 🔥 Sync status दाखवा
     });
 
   } catch (error) {
