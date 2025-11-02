@@ -1,3 +1,4 @@
+// routes/transactionRoutes.js - UPDATED
 import express from "express";
 import {
   getTransactions,
@@ -8,7 +9,8 @@ import {
   getTransactionDetails,
   downloadReceipt,
   initiateRefund,
-  debugTransactions
+  debugTransactions,
+  checkSchema
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -23,6 +25,7 @@ router.get("/details/:transactionId", authenticateMerchant, getTransactionDetail
 router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
 router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
 router.get("/debug", authenticateMerchant, debugTransactions);
+router.get("/check-schema", authenticateMerchant, checkSchema);
 
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
