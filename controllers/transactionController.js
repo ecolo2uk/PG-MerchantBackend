@@ -7,55 +7,7 @@ const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).sub
 const generateMid = () => `MID${Date.now()}`;
 const generateVendorRefId = () => `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-export const checkSyncStatus = async (req, res) => {
-  try {
-    const merchantId = req.user.id;
-    
-    // QR Transactions
-    const qrTransactions = await QrTransaction.find({ merchantId })
-      .sort({ createdAt: -1 })
-      .limit(10);
-    
-    // Main Transactions  
-    const mainTransactions = await Transaction.find({ merchantId })
-      .sort({ createdAt: -1 })
-      .limit(10);
-    
-    // Sync status check
-    const syncStatus = await Promise.all(
-      qrTransactions.map(async (qrTxn) => {
-        const mainTxn = await Transaction.findOne({ 
-          transactionId: qrTxn.transactionId 
-        });
-        return {
-          transactionId: qrTxn.transactionId,
-          qrExists: true,
-          mainExists: !!mainTxn,
-          status: qrTxn.status,
-          amount: qrTxn.amount,
-          createdAt: qrTxn.createdAt
-        };
-      })
-    );
-    
-    res.json({
-      code: 200,
-      syncStatus: {
-        totalQR: qrTransactions.length,
-        totalMain: mainTransactions.length,
-        transactions: syncStatus
-      }
-    });
-    
-  } catch (error) {
-    console.error("Sync check error:", error);
-    res.status(500).json({
-      code: 500,
-      message: "Sync check failed",
-      error: error.message
-    });
-  }
-};
+// सुधारित sync function
 const syncQrTransactionToMain = async (qrTransaction, webhookData) => {
   try {
     let mainTransaction;
