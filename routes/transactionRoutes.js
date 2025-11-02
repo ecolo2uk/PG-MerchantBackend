@@ -1,4 +1,3 @@
-// routes/transactionRoutes.js
 import express from "express";
 import {
   getTransactions,
@@ -24,6 +23,7 @@ router.get("/details/:transactionId", authenticateMerchant, getTransactionDetail
 router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
 router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
 router.get("/debug", authenticateMerchant, debugTransactions);
+
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
 

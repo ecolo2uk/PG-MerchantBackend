@@ -1,10 +1,11 @@
 import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema({
-  // Core transaction fields
+  // Core transaction identifiers
   transactionId: {
     type: String,
-    required: true
+    required: true,
+    unique: true
   },
   merchantOrderId: {
     type: String,
@@ -12,16 +13,25 @@ const transactionSchema = new mongoose.Schema({
   },
   merchantHashId: {
     type: String,
-    required: true
+    required: true,
+    default: "MERCDSH51Y7CD4YJLFIZR8NF"
   },
+  
+  // Merchant information
   merchantId: {
-    type: mongoose.Schema.Types.Mixed, // Allow both String and ObjectId
+    type: String,
     required: true
   },
   merchantName: {
     type: String,
     required: true
   },
+  merchantVpa: {
+    type: String,
+    default: 'enpay1.skypal@fino'
+  },
+  
+  // Payment details
   amount: {
     type: Number,
     required: true,
@@ -33,11 +43,11 @@ const transactionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["Pending", "Success", "Failed", "Cancelled", "Refund", "SUCCESS", "FAILED", "INITIATED"],
-    default: 'Pending'
+    enum: ["Pending", "Success", "Failed", "Cancelled", "Refunded", "Initiated"],
+    default: 'Initiated'
   },
   
-  // UPI/Payment related fields - FIXED NAMES
+  // UPI/Payment fields
   upiId: {
     type: String,
     default: 'enpay1.skypal@fino'
@@ -48,30 +58,49 @@ const transactionSchema = new mongoose.Schema({
   paymentUrl: {
     type: String
   },
-  txnNote: { // FIXED: was txNNote
+  txnNote: {
     type: String,
     default: 'Payment for Order'
   },
-  txnRefId: { // FIXED: was txNbefId
+  txnRefId: {
     type: String
-  },
-  merchantVpa: {
-    type: String,
-    default: 'enpay1.skypal@fino'
   },
   
-  // Customer information
+  // Customer information (optional)
   customerName: {
-    type: String
+    type: String,
+    default: null
   },
   customerVpa: {
-    type: String
+    type: String,
+    default: null
   },
   customerContact: {
-    type: String
+    type: String,
+    default: null
+  },
+  
+  // Commission and settlement
+  commissionAmount: {
+    type: Number,
+    default: 0
+  },
+  settlementStatus: {
+    type: String,
+    enum: ["Settled", "Unsettled", "NA"],
+    default: "Unsettled"
+  },
+  settlementDate: {
+    type: Date,
+    default: null
   }
 }, {
-  timestamps: true // This automatically creates createdAt and updatedAt
+  timestamps: true // creates createdAt and updatedAt automatically
 });
+
+// Add index for better query performance
+transactionSchema.index({ merchantId: 1, createdAt: -1 });
+transactionSchema.index({ transactionId: 1 });
+transactionSchema.index({ status: 1 });
 
 export default mongoose.model('Transaction', transactionSchema);
