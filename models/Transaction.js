@@ -1,3 +1,4 @@
+// models/Transaction.js
 import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema({
@@ -5,19 +6,10 @@ const transactionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     auto: true
   },
-  amount: {
-    type: Number,
-    required: true
-  },
-  "Commission Amount": {
-    type: Number,
+  transactionId: {
+    type: String,
     required: true,
-    default: 0
-  },
-  createdAt: {
-    type: Date,
-    required: true,
-    default: Date.now
+    unique: true
   },
   merchantId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -27,33 +19,68 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  mid: {
-    type: String,
-    required: true // FIXED: Add required
-  },
-  "Settlement Status": {
-    type: String,
+  amount: {
+    type: Number,
     required: true,
-    default: "Unsettled"
+    default: 0
   },
   status: {
     type: String,
     required: true,
-    enum: ['INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'],
+    enum: ['GENERATED', 'INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'], // Added 'GENERATED' for initial QR state
     default: 'INITIATED'
   },
-  transactionId: {
+  qrCode: {
+    type: String
+  },
+  paymentUrl: {
+    type: String
+  },
+  txnNote: {
+    type: String,
+    default: 'Payment for Order'
+  },
+  txnRefId: {
     type: String,
     required: true,
-    unique: true
+    unique: true // Ensure uniqueness for transaction reference ID
+  },
+  upiId: {
+    type: String,
+    default: 'enpay1.skypal@fino'
+  },
+  merchantVpa: {
+    type: String,
+    default: 'enpay1.skypal@fino'
+  },
+  merchantOrderId: {
+    type: String,
+    required: true // Making this required as it seems important for QR transactions
+  },
+  mid: {
+    type: String,
+    required: true
   },
   "Vendor Ref ID": {
     type: String,
-    required: true // FIXED: Add required
+    required: true
   },
-  // Optional fields
+  "Commission Amount": {
+    type: Number,
+    default: 0
+  },
+  "Settlement Status": {
+    type: String,
+    default: "Unsettled" // Changed default to Unsettled as per your main schema
+  },
+  // Fields that were previously in the main Transaction schema
+  createdAt: {
+    type: Date,
+    required: true,
+    default: Date.now
+  },
   "Customer Contact No": {
-    type: mongoose.Schema.Types.Mixed
+    type: String // Changed to String as it's often stored as such
   },
   "Customer Name": {
     type: String
@@ -67,34 +94,34 @@ const transactionSchema = new mongoose.Schema({
   "Vendor Txn ID": {
     type: String
   },
-  // Additional fields
-  merchantOrderId: {
-    type: String
+  // Fields from QrTransaction for internal tracking if needed
+  enpayInitiationStatus: {
+    type: String,
+    enum: ['NOT_ATTEMPTED', 'ATTEMPTED_SUCCESS', 'ATTEMPTED_FAILED'],
+    default: 'NOT_ATTEMPTED'
   },
-  txnNote: {
-    type: String
+  enpayError: {
+    type: mongoose.Schema.Types.Mixed
   },
-  txnRefId: {
-    type: String
-  },
-  upiId: {
-    type: String
-  },
-  merchantVpa: {
-    type: String
-  },
-  qrCode: {
-    type: String
-  },
-  paymentUrl: {
+  enpayQRCode: { // Renamed from qrCode if you need to store two different QR codes
     type: String
   },
   enpayTxnId: {
     type: String
+  },
+  // Fields for customer details directly
+  customerName: {
+    type: String // Redundant with "Customer Name" but keeping for clarity if different sources use different keys
+  },
+  customerVpa: {
+    type: String // Redundant with "Customer VPA"
+  },
+  customerContact: {
+    type: String // Redundant with "Customer Contact No"
   }
 }, {
-  collection: 'transactions',
-  timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
+  collection: 'transactions', // Explicitly set collection name
+  timestamps: true // Adds createdAt and updatedAt automatically
 });
 
 export default mongoose.model('Transaction', transactionSchema);
