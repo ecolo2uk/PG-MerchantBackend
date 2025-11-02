@@ -33,7 +33,7 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// In your transactionController.js - Fix the generateDynamicQR function
+// In your generateDynamicQR function - UPDATE THIS PART
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = "Payment for Order" } = req.body;
@@ -53,10 +53,8 @@ export const generateDynamicQR = async (req, res) => {
     const transactionId = generateTransactionId();
     const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const mid = generateMid();
-    const vendorRefId = generateVendorRefId();
 
-    // Create UPI URL
+    // Create UPI URL (for the QR image)
     const upiId = "enpay1.skypal@fino";
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
@@ -75,12 +73,13 @@ export const generateDynamicQR = async (req, res) => {
       upiId: upiId,
       merchantVpa: upiId,
       merchantOrderId: merchantOrderId,
-      mid: mid,
-      "Vendor Ref ID": vendorRefId,
+      mid: generateMid(),
+      "Vendor Ref ID": generateVendorRefId(),
       "Commission Amount": 0,
       "Settlement Status": "NA"
     };
 
+    // FIXED: Use Enpay dynamicQR instead of initiateCollectRequest
     let enpayInitiationStatus = 'NOT_ATTEMPTED';
     let enpayError = null;
     let enpayQRCode = null;
@@ -94,12 +93,12 @@ export const generateDynamicQR = async (req, res) => {
 
       if (enpayResponse.success) {
         enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
-        enpayQRCode = enpayResponse.qrCode;
+        enpayQRCode = enpayResponse.qrCode; // Store Enpay's QR code
         console.log("✅ Enpay dynamic QR generated successfully.");
       } else {
         enpayInitiationStatus = 'ATTEMPTED_FAILED';
         enpayError = enpayResponse.error || "Unknown Enpay error";
-        console.warn("⚠️ Enpay dynamic QR failed:", enpayError);
+        console.warn("⚠️ Enpay dynamic QR failed but QR generated locally:", enpayError);
       }
     } catch (enpayServiceError) {
       enpayInitiationStatus = 'ATTEMPTED_FAILED';
@@ -118,6 +117,7 @@ export const generateDynamicQR = async (req, res) => {
     await qrTransaction.save();
     console.log("✅ Successfully saved to QR transactions collection");
 
+    // Return both QR codes (local and Enpay)
     res.json({
       code: 200,
       message: "QR generated successfully",
@@ -127,15 +127,15 @@ export const generateDynamicQR = async (req, res) => {
         status: qrTransaction.status,
         upiId: qrTransaction.upiId,
         txnRefId: qrTransaction.txnRefId,
-        qrCode: qrTransaction.qrCode,
+        qrCode: qrTransaction.qrCode, // Local QR
         paymentUrl: qrTransaction.paymentUrl,
         txnNote: qrTransaction.txnNote,
         merchantName: qrTransaction.merchantName,
         createdAt: qrTransaction.createdAt,
         merchantOrderId: qrTransaction.merchantOrderId
       },
-      qrCode: qrCodeUrl,
-      enpayQRCode: enpayQRCode,
+      qrCode: qrCodeUrl, // Local QR
+      enpayQRCode: enpayQRCode, // Enpay QR (if available)
       upiUrl: paymentUrl,
       enpayInitiated: enpayInitiationStatus === 'ATTEMPTED_SUCCESS'
     });
@@ -149,6 +149,7 @@ export const generateDynamicQR = async (req, res) => {
     });
   }
 };
+
 // Generate default QR (without amount) - USING NEW COLLECTION
 export const generateDefaultQR = async (req, res) => {
   try {
