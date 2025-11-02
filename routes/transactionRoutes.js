@@ -8,13 +8,8 @@ import {
   getTransactionDetails,
   downloadReceipt,
   initiateRefund,
-  debugTransactions,
-  checkSchema,
-  debugQRGeneration,
-  analyzeSchema,
   simulatePaymentWebhook,
-  listAllEndpoints,
-  testAmountEndpoint  // Make sure this is imported
+  syncAllQRToMain
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -28,18 +23,10 @@ router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatu
 router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
 router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
 router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
-router.get("/debug", authenticateMerchant, debugTransactions);
-router.get("/check-schema", authenticateMerchant, checkSchema);
-
-// 🔥 CRITICAL: Add the test endpoint
-router.post("/test-amount", authenticateMerchant, testAmountEndpoint);
-
-router.post("/debug-qr", authenticateMerchant, debugQRGeneration);
-router.get("/analyze-schema", authenticateMerchant, analyzeSchema);
+router.post("/sync-all", authenticateMerchant, syncAllQRToMain);
 
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
 router.post("/simulate-webhook", authenticateMerchant, simulatePaymentWebhook);
-router.get("/endpoints", listAllEndpoints);
 
 export default router;
