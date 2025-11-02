@@ -1,5 +1,5 @@
 import Transaction from "../models/Transaction.js";
-// import QrTransaction from "../models/QrTransaction.js"; // Corrected import
+import QrTransaction from "../models/QrTransaction.js"; // Corrected import
 import EnpayService from "../services/enpayService.js";
 import mongoose from 'mongoose'; // Import mongoose for ObjectId
 
