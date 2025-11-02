@@ -1,5 +1,5 @@
 import Transaction from "../models/Transaction.js";
-import QrTransaction from "../models/QrTransaction.js";
+// import QrTransaction from "../models/QrTransaction.js";
 import EnpayService from "../services/enpayService.js";
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
