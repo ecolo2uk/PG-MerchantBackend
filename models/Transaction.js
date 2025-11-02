@@ -1,16 +1,16 @@
-// models/Transaction.js
+// models/Transaction.js - YOUR MAIN TRANSACTION SCHEMA
 import mongoose from 'mongoose';
 
 const mainTransactionSchema = new mongoose.Schema({
   transactionId: {
     type: String,
     required: true,
-    unique: true
+    unique: true // Assuming transactionId should be unique in the main table
   },
   merchantOrderId: {
     type: String,
     unique: true,
-    sparse: true
+    sparse: true // Allow nulls, but if present, must be unique
   },
   merchantId: {
     type: String,
@@ -36,7 +36,7 @@ const mainTransactionSchema = new mongoose.Schema({
     type: String,
     default: 'Payment for Order'
   },
-  txnRefId: {
+  txnRefId: { // Your internal reference ID
     type: String
   },
   upiId: {
@@ -47,40 +47,46 @@ const mainTransactionSchema = new mongoose.Schema({
     type: String,
     default: 'enpay1.skypal@fino'
   },
-  qrCode: {
+  qrCode: { // URL to the generated QR code image
     type: String
   },
-  paymentUrl: {
+  paymentUrl: { // The raw UPI deep link
     type: String
   },
-  enpayTxnId: {
+  enpayTxnId: { // Enpay's internal transaction ID
     type: String,
     default: null
   },
   customerName: { type: String, default: null },
   customerVpa: { type: String, default: null },
   customerContact: { type: String, default: null },
-  "Commission Amount": {
+  "Commission Amount": { // From your original schema, ensure it's here
     type: Number,
     required: true,
     default: 0
   },
-  mid: { // This is the ONLY mid definition now
+  mid: { // From your original schema
     type: String,
     required: true,
     default: function() { return `MID${Date.now()}`; }
   },
-  "Settlement Status": {
+ "Settlement Status": { // From your original schema
     type: String,
     required: true,
     enum: ["Settled", "Unsettled", "NA"],
     default: "Unsettled"
-  },
-  "Vendor Ref ID": {
+},
+"mid": {
+  type: String,
+  required: true,
+  default: function() { return `MID${Date.now()}`; }
+},
+"Vendor Ref ID": {
     type: String,
     required: true,
     default: function() { return this.txnRefId || `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`; }
-  },
+},
+
   "Failure Reasons": {
     type: String,
     default: null
@@ -89,13 +95,13 @@ const mainTransactionSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  createdAt: {
+  createdAt: { // Ensure this matches your expected format
     type: Date,
     default: Date.now
   }
 }, {
-  collection: 'transactions',
-  timestamps: true
+  collection: 'transactions', // Explicitly set to your main transactions collection
+  timestamps: true // Mongoose will manage `createdAt` and `updatedAt`
 });
 
 export default mongoose.model('Transaction', mainTransactionSchema);

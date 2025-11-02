@@ -360,6 +360,9 @@ export const handlePaymentWebhook = async (req, res) => {
 };
 
 
+// The rest of your controller functions (checkTransactionStatus, getTransactionDetails, etc.)
+// should now correctly use the imported 'Transaction' model, which points to the 'transactions' collection.
+// You might need to adjust some field names if they were inconsistent between your old 'QrTransaction' and new 'Transaction' models.
 
 export const simulatePaymentWebhook = async (req, res) => {
   try {
@@ -413,12 +416,6 @@ export const simulatePaymentWebhook = async (req, res) => {
 
     await handlePaymentWebhook(fakeReq, fakeRes);
 
-    } catch (error) {
-      console.error("❌ Simulation error:", error);
-      res.status(500).json({
-        code: 500,
-        message: "Webhook simulation failed",
-        error: error.message
-      });
-    }
-  };
+  } catch (error) {
+    console.error("❌ Simulation error:", error);
+    res.status(500).
