@@ -1,130 +1,16 @@
-// import mongoose from 'mongoose';
-
-// const transactionSchema = new mongoose.Schema({
-//   // REQUIRED FIELDS - Match your database schema exactly
-//   transactionId: {
-//     type: String,
-//     required: true,
-//     unique: true
-//   },
-//   amount: {
-//     type: Number,
-//     required: true,
-//     min: 0
-//   },
-//   "Commission Amount": {
-//     type: Number,
-//     required: true,
-//     default: 0
-//   },
-//   createdAt: {
-//     type: String,
-//     required: true,
-//     default: () => new Date().toISOString()
-//   },
-//   merchantId: {
-//     type: String, // Change to String to match your data
-//     required: true
-//   },
-//   merchantName: {
-//     type: String,
-//     required: true,
-//     default: "SKYPAL SYSTEM PRIVATE LIMITED"
-//   },
-//   mid: {
-//     type: String,
-//     required: true,
-//     default: function() {
-//       return `MID${Date.now()}`;
-//     }
-//   },
-//   "Settlement Status": {
-//     type: String,
-//     required: true,
-//     enum: ["Settled", "Unsettled", "NA"],
-//     default: "Unsettled"
-//   },
-//   status: {
-//     type: String,
-//     required: true,
-//     enum: ["SUCCESS", "FAILED", "PENDING", "INITIATED"],
-//     default: "INITIATED"
-//   },
-//   "Vendor Ref ID": {
-//     type: String,
-//     required: true,
-//     default: function() {
-//       return `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-//     }
-//   },
-
-//   // OPTIONAL FIELDS - Make them truly optional
-//   "Customer Contact No": {
-//     type: String,
-//     default: null
-//   },
-//   "Customer Name": {
-//     type: String,
-//     default: null
-//   },
-//   "Customer VPA": {
-//     type: String,
-//     default: null
-//   },
-//   "Failure Reasons": {
-//     type: String,
-//     default: null
-//   },
-//   "Vendor Txn ID": {
-//     type: String,
-//     default: null
-//   },
-
-//   // QR FIELDS
-//   merchantOrderId: {
-//     type: String,
-//     default: function() {
-//       return `ORDER${Date.now()}`;
-//     }
-//   },
-//   upiId: {
-//     type: String,
-//     default: 'enpay1.skypal@fino'
-//   },
-//   qrCode: {
-//     type: String,
-//     default: null
-//   },
-//   paymentUrl: {
-//     type: String,
-//     default: null
-//   },
-//   txnNote: {
-//     type: String,
-//     default: 'Payment for Order'
-//   },
-//   txnRefId: {
-//     type: String,
-//     default: null
-//   },
-//   merchantVpa: {
-//     type: String,
-//     default: 'enpay1.skypal@fino'
-//   }
-// }, {
-//   timestamps: false, // We're using custom createdAt
-//   strict: false // Allow additional fields that don't match schema
-// });
-
-// export default mongoose.model('Transaction', transactionSchema);
-
-// models/QrTransaction.js
+// models/Transaction.js - YOUR MAIN TRANSACTION SCHEMA
 import mongoose from 'mongoose';
 
-const transactionSchema = new mongoose.Schema({
+const mainTransactionSchema = new mongoose.Schema({
   transactionId: {
     type: String,
-    required: true
+    required: true,
+    unique: true // Assuming transactionId should be unique in the main table
+  },
+  merchantOrderId: {
+    type: String,
+    unique: true,
+    sparse: true // Allow nulls, but if present, must be unique
   },
   merchantId: {
     type: String,
@@ -132,28 +18,25 @@ const transactionSchema = new mongoose.Schema({
   },
   merchantName: {
     type: String,
-    required: true
+    required: true,
+    default: "SKYPAL SYSTEM PRIVATE LIMITED"
   },
   amount: {
     type: Number,
-    required: true
+    required: true,
+    min: 0
   },
   status: {
     type: String,
-    default: 'INITIATED',
-    enum: ['INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'] // Add more statuses if needed
-  },
-  qrCode: {
-    type: String
-  },
-  paymentUrl: {
-    type: String
+    required: true,
+    enum: ['INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'],
+    default: 'INITIATED'
   },
   txnNote: {
     type: String,
     default: 'Payment for Order'
   },
-  txnRefId: {
+  txnRefId: { // Your internal reference ID
     type: String
   },
   upiId: {
@@ -164,30 +47,55 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     default: 'enpay1.skypal@fino'
   },
-  merchantOrderId: { // Added for Enpay
-    type: String,
-    unique: true, // Should be unique for Enpay
-    sparse: true // Allows nulls, but if present must be unique
+  qrCode: { // URL to the generated QR code image
+    type: String
   },
-  enpayTxnId: { // To store Enpay's internal transaction ID if they provide one
+  paymentUrl: { // The raw UPI deep link
+    type: String
+  },
+  enpayTxnId: { // Enpay's internal transaction ID
     type: String,
     default: null
   },
-  createdAt: {
-    type: Date,
-    default: Date.now
+  customerName: { type: String, default: null },
+  customerVpa: { type: String, default: null },
+  customerContact: { type: String, default: null },
+  "Commission Amount": { // From your original schema, ensure it's here
+    type: Number,
+    required: true,
+    default: 0
   },
-  customerName: { type: String }, // Add for webhook data
-  customerVpa: { type: String },   // Add for webhook data
-  customerContact: { type: String }, // Add for webhook data
-  settlementStatus: {
+  mid: { // From your original schema
     type: String,
+    required: true,
+    default: function() { return `MID${Date.now()}`; }
+  },
+  "Settlement Status": { // From your original schema
+    type: String,
+    required: true,
     enum: ["Settled", "Unsettled", "NA"],
     default: "Unsettled"
+  },
+  "Vendor Ref ID": { // From your original schema
+    type: String,
+    required: true,
+    default: function() { return this.txnRefId || `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`; }
+  },
+  "Failure Reasons": {
+    type: String,
+    default: null
+  },
+  "Vendor Txn ID": {
+    type: String,
+    default: null
+  },
+  createdAt: { // Ensure this matches your expected format
+    type: Date,
+    default: Date.now
   }
 }, {
-  collection: 'qr_transactions',
-  timestamps: true // Let Mongoose manage createdAt and updatedAt
+  collection: 'transactions', // Explicitly set to your main transactions collection
+  timestamps: true // Mongoose will manage `createdAt` and `updatedAt`
 });
 
-export default mongoose.model('Transaction', transactionSchema);
+export default mongoose.model('Transaction', mainTransactionSchema);

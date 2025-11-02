@@ -1,50 +1,49 @@
-import Transaction from "../models/Transaction.js";
-// import QrTransaction from "../models/QrTransaction.js";
+// controllers/transactionController.js
+import Transaction from "../models/Transaction.js"; // Import your MAIN Transaction model
 import EnpayService from "../services/enpayService.js";
 
-const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
+// Helper functions (already good from your code)
+const generateUniqueId = (prefix) => `${prefix}${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-
+// =========================================================================
+// GET ALL TRANSACTIONS
+// =========================================================================
 export const getTransactions = async (req, res) => {
   try {
-    const merchantId = req.user.id;
+    const merchantId = req.user.id; // Assuming req.user.id is set by auth middleware
     console.log("🟡 Fetching transactions for merchant:", merchantId);
 
-    // Get from QR collection only (no validation issues)
-    const qrTransactions = await QrTransaction.find({ merchantId })
+    const transactions = await Transaction.find({ merchantId })
       .sort({ createdAt: -1 })
-      .select('-__v');
+      .select('-__v'); // Exclude __v field
 
-    console.log(`✅ Found ${qrTransactions.length} transactions in QR collection`);
-    
-    res.json(qrTransactions);
+    console.log(`✅ Found ${transactions.length} transactions for merchant ${merchantId}`);
+
+    res.json(transactions);
 
   } catch (error) {
     console.error("❌ Error fetching transactions:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       code: 500,
       message: "Failed to fetch transactions",
-      error: error.message 
+      error: error.message
     });
   }
 };
 
-// UPDATED generateDynamicQR - Use ONLY QrTransaction
-// transactionController.js
-
-// ... (other imports and helper functions)
-
-// UPDATED generateDynamicQR - Use ONLY QrTransaction and integrate Enpay
+// =========================================================================
+// GENERATE DYNAMIC QR CODE (WITH AMOUNT)
+// =========================================================================
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = "Payment for Order" } = req.body;
-    const merchantId = req.user.id;
+    const merchantId = req.user.id; // Assuming req.user.id is set by auth middleware
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
     console.log("🟡 Dynamic QR Request:", { merchantId, merchantName, amount, txnNote });
 
-    if (!amount || amount <= 0) {
+    if (!amount || parseFloat(amount) <= 0) {
       return res.status(400).json({
         code: 400,
         message: "Valid amount is required and must be greater than 0"
@@ -52,22 +51,21 @@ export const generateDynamicQR = async (req, res) => {
     }
 
     // Generate unique IDs
-    const transactionId = generateTransactionId(); // Your internal transaction ID
+    const transactionId = generateUniqueId("TXN"); // Your internal unique ID
     const txnRefId = generateTxnRefId(); // Your internal transaction reference ID
-    const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`; // Enpay requires a unique merchantOrderId
+    const merchantOrderId = generateUniqueId("ORDER"); // Enpay requires a unique merchantOrderId
 
-    // Create UPI URL (for the QR image)
-    const upiId = "enpay1.skypal@fino"; // Using your default UPI ID
-    const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
+    const upiId = "enpay1.skypal@fino"; // Your default UPI ID
+    const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parseFloat(amount).toFixed(2)}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Data for QrTransaction collection
-    const qrTransactionData = {
+    // Prepare data for saving to your MAIN Transaction collection
+    const transactionData = {
       transactionId: transactionId,
       merchantId: merchantId,
       merchantName: merchantName,
       amount: parseFloat(amount),
-      status: "INITIATED",
+      status: "INITIATED", // Initial status
       qrCode: qrCodeUrl,
       paymentUrl: paymentUrl, // This is the upi:// link
       txnNote: txnNote,
@@ -75,62 +73,74 @@ export const generateDynamicQR = async (req, res) => {
       upiId: upiId,
       merchantVpa: upiId, // Assuming merchantVpa is the same as upiId for now
       merchantOrderId: merchantOrderId, // Store this for Enpay
-      merchantHashId: "MERCDSH51Y7CD4YJLFIZR8NF" // Your Enpay Hash ID
+      // Default values for other required fields from your main schema
+      "Commission Amount": 0,
+      mid: `MID${Date.now()}`,
+      "Settlement Status": "Unsettled",
+      "Vendor Ref ID": txnRefId, // Use txnRefId for vendor ref
+      createdAt: new Date() // Use Date object for Date type
     };
 
-    // Attempt to initiate collect request with Enpay
     let enpayInitiated = false;
-    let enpayResponse = null;
+    let enpayErrorDetails = null;
+
+    // --- Attempt to initiate collect request with Enpay ---
     try {
-      enpayResponse = await EnpayService.initiateCollectRequest({
-        amount: parseFloat(amount),
-        merchantOrderId: merchantOrderId, // Use the generated merchantOrderId
-        transactionId: transactionId, // Use your internal transaction ID as merchantTrnId
+      const enpayResponse = await EnpayService.initiateCollectRequest({
+        amount: transactionData.amount, // Use the already parsed float amount
+        merchantOrderId: merchantOrderId,
+        transactionId: transactionId, // merchantTrnId for Enpay
         txnNote: txnNote
       });
 
       if (enpayResponse.success) {
         enpayInitiated = true;
-        // Optionally store Enpay's transaction ID if they return one
-        // qrTransactionData.enpayTxnId = enpayResponse.data.enpayTxnId;
+        transactionData.enpayTxnId = enpayResponse.data.enpayTxnId; // Store Enpay's ID
         console.log("✅ Enpay collect request initiated successfully.");
       } else {
-        console.warn("⚠️ Enpay collect request failed but QR generated locally:", enpayResponse.error);
-        // You might want to update status to FAILED_ENPAY_INITIATION or similar
+        enpayErrorDetails = enpayResponse.error;
+        console.warn("⚠️ Enpay collect request failed:", enpayErrorDetails);
+        // If Enpay initiation fails, the transaction status remains "INITIATED"
+        // or you might want to change it to "ENPAY_FAILED" to signify the failure.
+        // For now, let's keep it INITIATED as the QR is still generated.
+        // transactionData.status = "ENPAY_FAILED";
       }
     } catch (enpayError) {
-      console.error("❌ Error calling EnpayService:", enpayError.message);
-      // Continue without Enpay initiation if there's an error
+      enpayErrorDetails = enpayError.message;
+      console.error("❌ Error calling EnpayService:", enpayErrorDetails);
+      // transactionData.status = "ENPAY_FAILED";
     }
 
-    console.log("🟡 Saving to QR transactions collection...");
-    const qrTransaction = new QrTransaction(qrTransactionData);
-    await qrTransaction.save();
-    console.log("✅ Successfully saved to QR transactions collection");
+    console.log("🟡 Saving to main transactions collection:", transactionData.transactionId);
+    const newTransaction = new Transaction(transactionData);
+    await newTransaction.save();
+    console.log("✅ Successfully saved to main transactions collection.");
 
     res.json({
       code: 200,
       message: "QR generated successfully",
       transaction: {
-        transactionId: qrTransaction.transactionId,
-        amount: qrTransaction.amount,
-        status: qrTransaction.status,
-        upiId: qrTransaction.upiId,
-        txnRefId: qrTransaction.txnRefId,
-        qrCode: qrTransaction.qrCode,
-        paymentUrl: qrTransaction.paymentUrl,
-        txnNote: qrTransaction.txnNote,
-        merchantName: qrTransaction.merchantName,
-        createdAt: qrTransaction.createdAt,
-        merchantOrderId: qrTransaction.merchantOrderId // Include this
+        transactionId: newTransaction.transactionId,
+        amount: newTransaction.amount,
+        status: newTransaction.status,
+        upiId: newTransaction.upiId,
+        txnRefId: newTransaction.txnRefId,
+        qrCode: newTransaction.qrCode,
+        paymentUrl: newTransaction.paymentUrl,
+        txnNote: newTransaction.txnNote,
+        merchantName: newTransaction.merchantName,
+        createdAt: newTransaction.createdAt,
+        merchantOrderId: newTransaction.merchantOrderId,
+        enpayTxnId: newTransaction.enpayTxnId // Include Enpay's ID if available
       },
       qrCode: qrCodeUrl,
       upiUrl: paymentUrl,
-      enpayInitiated: enpayInitiated // Inform the frontend if Enpay was called
+      enpayInitiated: enpayInitiated,
+      enpayError: enpayErrorDetails // Include error details for frontend debugging
     });
 
   } catch (error) {
-    console.error("❌ QR Generation Error:", error);
+    console.error("❌ Dynamic QR Generation Error:", error);
     res.status(500).json({
       code: 500,
       message: "QR generation failed",
@@ -139,25 +149,27 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-// Generate default QR (without amount) - USING NEW COLLECTION
+// =========================================================================
+// GENERATE DEFAULT QR (WITHOUT AMOUNT)
+// =========================================================================
 export const generateDefaultQR = async (req, res) => {
   try {
-    const merchantId = req.user.id;
+    const merchantId = req.user.id; // Assuming req.user.id is set by auth middleware
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
     console.log("🟡 Default QR Request from:", merchantName);
 
     // Generate unique IDs
-    const transactionId = generateTransactionId();
+    const transactionId = generateUniqueId("TXN");
     const txnRefId = generateTxnRefId();
-    const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`; // Enpay requires a unique merchantOrderId
+    const merchantOrderId = generateUniqueId("ORDER");
 
-    // Create UPI URL without amount
     const upiId = "enpay1.skypal@fino";
+    // For default QR, amount is 0, so don't include 'am' parameter in UPI URL
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Create transaction data for QrTransaction collection
+    // Prepare data for saving to your MAIN Transaction collection
     const transactionData = {
       transactionId: transactionId,
       merchantId: merchantId,
@@ -170,57 +182,60 @@ export const generateDefaultQR = async (req, res) => {
       txnRefId: txnRefId,
       upiId: upiId,
       merchantVpa: upiId,
-      merchantOrderId: merchantOrderId // Store this for Enpay
+      merchantOrderId: merchantOrderId,
+      // Default values for other required fields
+      "Commission Amount": 0,
+      mid: `MID${Date.now()}`,
+      "Settlement Status": "Unsettled",
+      "Vendor Ref ID": txnRefId,
+      createdAt: new Date()
     };
 
-    // Attempt to initiate collect request with Enpay (even for default QR, if you want it tracked by Enpay)
     let enpayInitiated = false;
-    let enpayResponse = null;
-    if (transactionData.amount > 0) { // Only call Enpay if there's an amount
-       try {
-        enpayResponse = await EnpayService.initiateCollectRequest({
-          amount: parseFloat(transactionData.amount),
-          merchantOrderId: merchantOrderId,
-          transactionId: transactionId,
-          txnNote: transactionData.txnNote
-        });
+    let enpayErrorDetails = null;
 
-        if (enpayResponse.success) {
-          enpayInitiated = true;
-          console.log("✅ Enpay collect request initiated successfully for default QR.");
-        } else {
-          console.warn("⚠️ Enpay collect request failed for default QR but QR generated locally:", enpayResponse.error);
-        }
-      } catch (enpayError) {
-        console.error("❌ Error calling EnpayService for default QR:", enpayError.message);
-      }
-    }
+    // --- For Default QR (amount 0), we typically don't initiate Enpay collect request ---
+    // Enpay's collect request API usually requires an amount > 0.
+    // If you need Enpay to track 0-amount QR generations, you'd need to confirm
+    // their API supports it or use a nominal amount if acceptable.
+    console.log("⏩ Skipping Enpay initiation for default QR as amount is 0.");
+    // if (transactionData.amount > 0) { // This condition (currently false) would enable Enpay call
+    //   try {
+    //     const enpayResponse = await EnpayService.initiateCollectRequest({
+    //       amount: transactionData.amount,
+    //       merchantOrderId: merchantOrderId,
+    //       transactionId: transactionId,
+    //       txnNote: transactionData.txnNote
+    //     });
+    //     // ... handle response like in generateDynamicQR ...
+    //   } catch (enpayError) { /* ... */ }
+    // }
 
-
-    console.log("🟡 Saving default QR to new collection:", transactionData);
-    const transaction = new QrTransaction(transactionData);
-    await transaction.save();
-    console.log("✅ Default QR transaction saved:", transaction.transactionId);
+    console.log("🟡 Saving default QR to main transactions collection:", transactionData.transactionId);
+    const newTransaction = new Transaction(transactionData);
+    await newTransaction.save();
+    console.log("✅ Default QR transaction saved.");
 
     res.json({
       code: 200,
       message: "Default QR generated successfully",
       transaction: {
-        transactionId: transaction.transactionId,
-        amount: transaction.amount,
-        status: transaction.status,
-        upiId: transaction.upiId,
-        txnRefId: transaction.txnRefId,
-        qrCode: transaction.qrCode,
-        paymentUrl: transaction.paymentUrl,
-        txnNote: transaction.txnNote,
-        merchantName: transaction.merchantName,
-        createdAt: transaction.createdAt,
-        merchantOrderId: transaction.merchantOrderId
+        transactionId: newTransaction.transactionId,
+        amount: newTransaction.amount,
+        status: newTransaction.status,
+        upiId: newTransaction.upiId,
+        txnRefId: newTransaction.txnRefId,
+        qrCode: newTransaction.qrCode,
+        paymentUrl: newTransaction.paymentUrl,
+        txnNote: newTransaction.txnNote,
+        merchantName: newTransaction.merchantName,
+        createdAt: newTransaction.createdAt,
+        merchantOrderId: newTransaction.merchantOrderId
       },
       qrCode: qrCodeUrl,
       upiUrl: paymentUrl,
-      enpayInitiated: enpayInitiated
+      enpayInitiated: enpayInitiated, // Will be false for default QR
+      enpayError: enpayErrorDetails // Will be null for default QR
     });
 
   } catch (error) {
@@ -233,58 +248,65 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
-// ... (rest of your transactionController.js)
-
+// =========================================================================
+// HANDLE PAYMENT WEBHOOK FROM ENPAY
+// =========================================================================
 export const handlePaymentWebhook = async (req, res) => {
   try {
-    const { 
-      transactionId, 
-      status, 
-      upiId, 
-      amount, 
-      txnRefId, 
-      customerName, 
-      customerVpa, 
+    const {
+      transactionId, // Your internal transactionId (merchantTrnId for Enpay)
+      status, // Payment status from Enpay (e.g., "SUCCESS", "FAILED")
+      upiId, // Customer's UPI ID or Enpay's default
+      amount,
+      txnRefId, // Your internal txnRefId
+      customerName,
+      customerVpa,
       customerContact,
-      settlementStatus,
-      merchantOrderId
+      settlementStatus, // Settlement status from Enpay
+      merchantOrderId, // Enpay's merchantOrderId
+      enpayTxnId // Enpay's actual transaction ID
     } = req.body;
 
-    console.log("🟡 Webhook Received for QrTransaction:", req.body);
+    console.log("🟡 Webhook Received for Transaction:", req.body);
 
     let transaction;
 
-    // Find in QrTransaction collection
-    if (transactionId) {
-      transaction = await QrTransaction.findOne({ transactionId });
-    } 
-    if (!transaction && merchantOrderId) {
-      transaction = await QrTransaction.findOne({ merchantOrderId });
+    // Prioritize finding by Enpay's transaction ID or your internal IDs
+    if (enpayTxnId) {
+      transaction = await Transaction.findOne({ enpayTxnId });
     }
-    if (!transaction && txnRefId) {
-      transaction = await QrTransaction.findOne({ txnRefId });
+    if (!transaction && transactionId) {
+      transaction = await Transaction.findOne({ transactionId });
+    }
+    if (!transaction && merchantOrderId) {
+      transaction = await Transaction.findOne({ merchantOrderId });
+    }
+    if (!transaction && txnRefId) { // Fallback to txnRefId
+      transaction = await Transaction.findOne({ txnRefId });
     }
 
     if (transaction) {
-      console.log(`✅ Found QrTransaction: ${transaction.transactionId}, Current status: ${transaction.status}`);
+      console.log(`✅ Found Transaction: ${transaction.transactionId}, Current status: ${transaction.status}`);
 
       const oldStatus = transaction.status;
-      
-      // Update transaction fields
+
+      // Update transaction fields from webhook
       if (status) transaction.status = status;
-      if (upiId) transaction.upiId = upiId;
-      if (amount) transaction.amount = parseFloat(amount);
+      if (upiId) transaction.upiId = upiId; // This could be the customer's UPI ID or Enpay's
+      if (amount) transaction.amount = parseFloat(amount); // Ensure amount is number
       if (customerName) transaction.customerName = customerName;
       if (customerVpa) transaction.customerVpa = customerVpa;
       if (customerContact) transaction.customerContact = customerContact;
-      if (settlementStatus) transaction.settlementStatus = settlementStatus;
-      
+      if (settlementStatus) transaction["Settlement Status"] = settlementStatus;
+      if (enpayTxnId && !transaction.enpayTxnId) transaction.enpayTxnId = enpayTxnId; // Store Enpay's ID if not already there
+      if (txnRefId && !transaction["Vendor Ref ID"]) transaction["Vendor Ref ID"] = txnRefId; // Ensure vendor ref is updated
+
       await transaction.save();
-      
-      console.log(`✅ QrTransaction ${transaction.transactionId} updated from ${oldStatus} to: ${transaction.status}`);
-      
-      res.json({ 
-        code: 200, 
+
+      console.log(`✅ Transaction ${transaction.transactionId} updated from ${oldStatus} to: ${transaction.status}`);
+
+      res.json({
+        code: 200,
         message: "Webhook processed successfully",
         transactionId: transaction.transactionId,
         oldStatus: oldStatus,
@@ -292,16 +314,57 @@ export const handlePaymentWebhook = async (req, res) => {
         amount: transaction.amount
       });
     } else {
-      console.log("❌ Transaction not found in QrTransaction collection");
-      res.status(404).json({ 
-        code: 404,
-        message: "Transaction not found in QrTransaction collection" 
-      });
+      console.log("❌ Transaction not found in main collection for webhook. Attempting to create a new one.");
+      // If transaction not found, create a new one based on webhook data.
+      // This is a safety net for cases where initial QR generation might have failed to save locally,
+      // or if Enpay initiates a transaction not previously recorded.
+      const newTransactionId = transactionId || generateUniqueId("WEBHOOK");
+      const newTxnRefId = txnRefId || generateTxnRefId();
+      const newMerchantOrderId = merchantOrderId || generateUniqueId("WEBHOOK_ORDER");
+
+      const webhookTransactionData = {
+        transactionId: newTransactionId,
+        merchantId: req.user?.id || "WEBHOOK_UNKNOWN", // Try to get merchantId from user or use default
+        merchantName: req.user?.merchantName || "SKYPAL SYSTEM PRIVATE LIMITED", // Try to get merchant name
+        amount: parseFloat(amount) || 0,
+        status: status || "SUCCESS", // Assume success if webhook received, but could be PENDING, FAILED
+        upiId: upiId || "enpay1.skypal@fino",
+        txnRefId: newTxnRefId,
+        merchantOrderId: newMerchantOrderId,
+        enpayTxnId: enpayTxnId || null,
+        customerName: customerName || null,
+        customerVpa: customerVpa || null,
+        customerContact: customerContact || null,
+        "Commission Amount": 0, // Default
+        mid: `MID${Date.now()}`,
+        "Settlement Status": settlementStatus || "Unsettled",
+        "Vendor Ref ID": newTxnRefId,
+        createdAt: new Date()
+      };
+
+      try {
+        const newWebhookTransaction = new Transaction(webhookTransactionData);
+        await newWebhookTransaction.save();
+        console.log(`✅ New transaction created from webhook: ${newWebhookTransaction.transactionId}`);
+        res.json({
+          code: 200,
+          message: "New transaction created from webhook successfully",
+          transactionId: newWebhookTransaction.transactionId,
+          status: newWebhookTransaction.status
+        });
+      } catch (saveError) {
+        console.error("❌ Error saving new transaction from webhook:", saveError);
+        res.status(500).json({
+          code: 500,
+          message: "Webhook processed, but failed to save new transaction",
+          error: saveError.message
+        });
+      }
     }
 
   } catch (error) {
     console.error("❌ Webhook Error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       code: 500,
       message: "Webhook processing failed",
       error: error.message
@@ -309,87 +372,59 @@ export const handlePaymentWebhook = async (req, res) => {
   }
 };
 
-// Helper function to create transaction in main collection from QR transaction
-const createMainTransactionFromQR = async (qrTransaction, webhookData) => {
-  const mainTransactionData = {
-    transactionId: qrTransaction.transactionId,
-    merchantId: qrTransaction.merchantId.toString(),
-    merchantName: qrTransaction.merchantName,
-    amount: qrTransaction.amount,
-    status: webhookData.status || qrTransaction.status,
-    qrCode: qrTransaction.qrCode,
-    paymentUrl: qrTransaction.paymentUrl,
-    txnNote: qrTransaction.txnNote,
-    txnRefId: qrTransaction.txnRefId,
-    upiId: qrTransaction.upiId,
-    merchantVpa: qrTransaction.merchantVpa,
-    // Required schema fields
-    "Commission Amount": 0,
-    createdAt: qrTransaction.createdAt || new Date().toISOString(),
-    mid: `MID${Date.now()}`,
-    "Settlement Status": webhookData.settlementStatus || "Unsettled",
-    "Vendor Ref ID": qrTransaction.txnRefId || `VENDORREF${Date.now()}`,
-    // Webhook data
-    "Customer Name": webhookData.customerName || null,
-    "Customer VPA": webhookData.customerVpa || null,
-    "Customer Contact No": webhookData.customerContact || null,
-    merchantOrderId: `ORDER${Date.now()}`
-  };
 
-  const mainTransaction = new Transaction(mainTransactionData);
-  await mainTransaction.save();
-  console.log("✅ Successfully synced QR transaction to main collection");
-  return mainTransaction;
-};
-
-// Helper function to create transaction from webhook data
-const createTransactionFromWebhook = async (webhookData) => {
-  const transactionData = {
-    transactionId: webhookData.transactionId || `TXN${Date.now()}`,
-    merchantId: "webhook_created", // You might need to determine merchant ID
-    merchantName: "SKYPAL SYSTEM PRIVATE LIMITED",
-    amount: parseFloat(webhookData.amount) || 0,
-    status: webhookData.status || "SUCCESS",
-    upiId: webhookData.upiId || "enpay1.skypal@fino",
-    txnRefId: webhookData.txnRefId,
-    // Required schema fields
-    "Commission Amount": 0,
-    createdAt: new Date().toISOString(),
-    mid: `MID${Date.now()}`,
-    "Settlement Status": webhookData.settlementStatus || "Unsettled",
-    "Vendor Ref ID": webhookData.txnRefId || `VENDORREF${Date.now()}`,
-    // Webhook data
-    "Customer Name": webhookData.customerName || null,
-    "Customer VPA": webhookData.customerVpa || null,
-    "Customer Contact No": webhookData.customerContact || null,
-    merchantOrderId: `ORDER${Date.now()}`
-  };
-
-  const transaction = new Transaction(transactionData);
-  await transaction.save();
-  console.log("✅ Created new transaction from webhook data");
-  return transaction;
-};
-
-// Test endpoint to simulate payment webhook
+// =========================================================================
+// SIMULATE PAYMENT WEBHOOK (FOR TESTING)
+// =========================================================================
 export const simulatePaymentWebhook = async (req, res) => {
   try {
-    const { transactionId, amount = 100 } = req.body;
-    
+    const { transactionId, merchantOrderId, amount = 100, status = "SUCCESS", customerVpa = "customer@okicici", enpayTxnId, txnRefId } = req.body;
+
+    // You need to ensure a transaction exists in your DB with this transactionId/merchantOrderId first
+    let existingTransaction;
+    if (transactionId) {
+      existingTransaction = await Transaction.findOne({ transactionId });
+    } else if (merchantOrderId) {
+      existingTransaction = await Transaction.findOne({ merchantOrderId });
+    } else if (enpayTxnId) {
+      existingTransaction = await Transaction.findOne({ enpayTxnId });
+    } else if (txnRefId) {
+      existingTransaction = await Transaction.findOne({ txnRefId });
+    }
+
+
+    if (!existingTransaction) {
+      // If no existing transaction, we can still simulate a creation scenario
+      // or return an error depending on test case
+      console.log("⚠️ No existing transaction found for simulation. Will attempt to create one via webhook handler.");
+      // We will proceed to call handlePaymentWebhook, which has logic to create if not found
+    }
+
     const webhookData = {
-      transactionId: transactionId,
-      status: "SUCCESS",
-      upiId: "customer@upi",
+      transactionId: existingTransaction?.transactionId || transactionId || generateUniqueId("SIM_TXN"),
+      merchantOrderId: existingTransaction?.merchantOrderId || merchantOrderId || generateUniqueId("SIM_ORDER"),
+      enpayTxnId: existingTransaction?.enpayTxnId || enpayTxnId || generateUniqueId("SIM_ENPAY"), // Populate Enpay's ID
+      txnRefId: existingTransaction?.txnRefId || txnRefId || generateTxnRefId(),
+      status: status,
+      upiId: "simulated@upi",
       amount: amount,
-      txnRefId: `REF${Date.now()}`,
-      customerName: "Test Customer",
-      customerVpa: "customer@okicici",
+      customerName: "Simulated Customer",
+      customerVpa: customerVpa,
       customerContact: "9876543210",
-      settlementStatus: "Unsettled"
+      settlementStatus: "Unsettled",
+      merchantId: existingTransaction?.merchantId || "TEST_MERCHANT_ID", // Add merchant ID for creation
+      merchantName: existingTransaction?.merchantName || "SIMULATED MERCHANT"
     };
 
-    // Call webhook internally
-    const fakeReq = { body: webhookData };
+    console.log("🟡 Simulating webhook call with data:", webhookData);
+
+    const fakeReq = {
+      body: webhookData,
+      user: { // Mock user for webhook creation scenario
+        id: webhookData.merchantId,
+        merchantName: webhookData.merchantName
+      }
+    };
     const fakeRes = {
       json: (data) => {
         console.log("✅ Simulated webhook response:", data);
@@ -401,473 +436,40 @@ export const simulatePaymentWebhook = async (req, res) => {
       },
       status: (code) => ({
         json: (data) => {
-          console.log("❌ Simulated webhook error:", data);
+          console.log(`❌ Simulated webhook error (${code}):`, data);
           res.status(code).json(data);
         }
       })
     };
 
+    // Call the actual webhook handler
     await handlePaymentWebhook(fakeReq, fakeRes);
 
   } catch (error) {
     console.error("❌ Simulation error:", error);
     res.status(500).json({
       code: 500,
-      message: "Simulation failed",
+      message: "Webhook simulation failed",
       error: error.message
     });
   }
 };
 
 
-
-// Check Transaction Status
-export const checkTransactionStatus = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const merchantId = req.user.id;
-
-    console.log("🟡 Checking transaction status:", { transactionId, merchantId });
-
-    const transaction = await Transaction.findOne({ 
-      transactionId, 
-      merchantId 
-    });
-
-    if (!transaction) {
-      return res.status(404).json({ 
-        code: 404,
-        message: "Transaction not found" 
-      });
-    }
-
-    res.json({
-      code: 200,
-      transaction: {
-        transactionId: transaction.transactionId,
-        status: transaction.status,
-        amount: transaction.amount,
-        upiId: transaction.upiId,
-        txnRefId: transaction.txnRefId,
-        createdAt: transaction.createdAt,
-        settlementStatus: transaction["Settlement Status"]
-      }
-    });
-  } catch (error) {
-    console.error("❌ Check Status Error:", error);
-    res.status(500).json({ 
-      code: 500,
-      message: "Failed to check transaction status",
-      error: error.message 
-    });
-  }
+// =========================================================================
+// ENPAY RETURN/SUCCESS URLS (These are usually frontend redirects,
+// but if Enpay posts data directly, handle them as webhooks or log them)
+// =========================================================================
+export const handleEnpayReturn = (req, res) => {
+  console.log("🟡 Enpay Return URL hit:", req.query || req.body);
+  // Typically, you would redirect the user to a success page on your frontend
+  // and fetch the transaction status from your backend.
+  res.redirect('/payment-status?status=return&transactionId=' + (req.query.transactionId || ''));
 };
 
-// Get Transaction Details
-export const getTransactionDetails = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const merchantId = req.user.id;
-
-    console.log("🟡 Get transaction details:", { transactionId, merchantId });
-
-    const transaction = await Transaction.findOne({ 
-      transactionId, 
-      merchantId 
-    });
-
-    if (!transaction) {
-      return res.status(404).json({ 
-        code: 404,
-        message: "Transaction not found" 
-      });
-    }
-
-    res.json({
-      code: 200,
-      transaction
-    });
-  } catch (error) {
-    console.error("❌ Get Details Error:", error);
-    res.status(500).json({ 
-      code: 500,
-      message: error.message 
-    });
-  }
-};
-
-// Download Receipt
-export const downloadReceipt = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const merchantId = req.user.id;
-
-    console.log("🟡 Download receipt request:", { transactionId, merchantId });
-
-    const transaction = await Transaction.findOne({ 
-      transactionId, 
-      merchantId 
-    });
-
-    if (!transaction) {
-      return res.status(404).json({ 
-        code: 404,
-        message: "Transaction not found" 
-      });
-    }
-
-    if (transaction.status !== "SUCCESS") {
-      return res.status(400).json({ 
-        code: 400,
-        message: "Receipt only available for successful transactions" 
-      });
-    }
-
-    // Generate receipt data
-    const receiptData = {
-      transactionId: transaction.transactionId,
-      merchantOrderId: transaction.merchantOrderId,
-      amount: transaction.amount,
-      date: transaction.createdAt,
-      merchantName: transaction.merchantName,
-      status: transaction.status,
-      upiId: transaction.upiId,
-      customerName: transaction["Customer Name"] || 'N/A',
-      customerVpa: transaction["Customer VPA"] || 'N/A',
-      commissionAmount: transaction["Commission Amount"],
-      settlementStatus: transaction["Settlement Status"]
-    };
-
-    res.json({
-      code: 200,
-      message: "Receipt generated successfully",
-      receipt: receiptData
-    });
-
-  } catch (error) {
-    console.error("❌ Download Receipt Error:", error);
-    res.status(500).json({ 
-      code: 500,
-      message: "Failed to download receipt",
-      error: error.message 
-    });
-  }
-};
-
-// Initiate Refund
-export const initiateRefund = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const { refundAmount, reason } = req.body;
-    const merchantId = req.user.id;
-
-    console.log("🟡 Refund request:", { transactionId, merchantId, refundAmount, reason });
-
-    const transaction = await Transaction.findOne({ 
-      transactionId, 
-      merchantId 
-    });
-
-    if (!transaction) {
-      return res.status(404).json({ 
-        code: 404,
-        message: "Transaction not found" 
-      });
-    }
-
-    if (transaction.status !== "SUCCESS") {
-      return res.status(400).json({ 
-        code: 400,
-        message: "Refund only available for successful transactions" 
-      });
-    }
-
-    if (refundAmount > transaction.amount) {
-      return res.status(400).json({ 
-        code: 400,
-        message: "Refund amount cannot exceed original transaction amount" 
-      });
-    }
-
-    // Implement refund logic here
-    console.log(`🟡 Refund initiated for: ${transactionId}, Amount: ${refundAmount}, Reason: ${reason}`);
-
-    // Update transaction status to Refunded
-    transaction.status = "Refunded";
-    await transaction.save();
-
-    res.json({
-      code: 200,
-      message: "Refund initiated successfully",
-      refundId: `REF${Date.now()}`,
-      transactionId: transactionId,
-      refundAmount: refundAmount,
-      originalAmount: transaction.amount,
-      status: "Refunded"
-    });
-
-  } catch (error) {
-    console.error("❌ Refund Error:", error);
-    res.status(500).json({ 
-      code: 500,
-      message: "Failed to initiate refund",
-      error: error.message 
-    });
-  }
-};
-
-// Webhook to update transaction status
-// export const handlePaymentWebhook = async (req, res) => {
-//   try {
-//     const { 
-//       transactionId, 
-//       status, 
-//       upiId, 
-//       amount, 
-//       txnRefId, 
-//       customerName, 
-//       customerVpa, 
-//       customerContact,
-//       settlementStatus 
-//     } = req.body;
-
-//     console.log("🟡 Webhook Received:", req.body);
-
-//     let transaction;
-
-//     // Find transaction by transactionId or txnRefId
-//     if (transactionId) {
-//       transaction = await Transaction.findOne({ transactionId });
-//     } 
-//     if (!transaction && txnRefId) {
-//       transaction = await Transaction.findOne({ txnRefId });
-//     }
-
-//     if (transaction) {
-//       // Update transaction fields
-//       if (status) transaction.status = status;
-//       if (upiId) transaction.upiId = upiId;
-//       if (amount) transaction.amount = parseFloat(amount);
-//       if (customerName) transaction["Customer Name"] = customerName;
-//       if (customerVpa) transaction["Customer VPA"] = customerVpa;
-//       if (customerContact) transaction["Customer Contact No"] = customerContact;
-//       if (settlementStatus) transaction["Settlement Status"] = settlementStatus;
-      
-//       await transaction.save();
-      
-//       console.log(`✅ Transaction ${transaction.transactionId} updated to: ${status}`);
-      
-//       res.json({ 
-//         code: 200, 
-//         message: "Webhook processed successfully",
-//         transactionId: transaction.transactionId,
-//         status: transaction.status
-//       });
-//     } else {
-//       console.log("❌ Transaction not found for webhook");
-//       res.status(404).json({ 
-//         code: 404,
-//         message: "Transaction not found" 
-//       });
-//     }
-
-//   } catch (error) {
-//     console.error("❌ Webhook Error:", error);
-//     res.status(500).json({ 
-//       code: 500,
-//       message: "Webhook processing failed",
-//       error: error.message
-//     });
-//   }
-// };
-
-// Debug endpoint to check current transactions
-export const debugTransactions = async (req, res) => {
-  try {
-    const merchantId = req.user.id;
-    const transactions = await Transaction.find({ merchantId }).limit(5);
-    const sample = await Transaction.findOne({ merchantId });
-    
-    // Check schema requirements
-    const testData = {
-      transactionId: "TEST123",
-      amount: 100,
-      "Commission Amount": 0,
-      createdAt: new Date().toISOString(),
-      merchantId: merchantId,
-      merchantName: "Test Merchant",
-      mid: "MIDTEST123",
-      "Settlement Status": "Unsettled",
-      status: "INITIATED",
-      "Vendor Ref ID": "VENDORREFTEST123"
-    };
-    
-    const testTransaction = new Transaction(testData);
-    const validationError = testTransaction.validateSync();
-    
-    res.json({
-      code: 200,
-      merchantId,
-      totalCount: await Transaction.countDocuments({ merchantId }),
-      sampleTransaction: sample,
-      recentTransactions: transactions,
-      schemaTest: validationError ? {
-        valid: false,
-        errors: validationError.errors
-      } : {
-        valid: true,
-        message: "Schema validation passed"
-      },
-      requiredFields: [
-        "transactionId",
-        "amount", 
-        "Commission Amount",
-        "createdAt",
-        "merchantId",
-        "merchantName", 
-        "mid",
-        "Settlement Status",
-        "status",
-        "Vendor Ref ID"
-      ]
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      code: 500,
-      error: error.message 
-    });
-  }
-};
-
-// Schema check endpoint
-export const checkSchema = async (req, res) => {
-  try {
-    const sampleDoc = {
-      transactionId: "TEST123",
-      merchantOrderId: "ORDER123", 
-      merchantId: req.user.id,
-      merchantName: "Test Merchant",
-      amount: 100,
-      status: "INITIATED"
-    };
-    
-    const testTransaction = new Transaction(sampleDoc);
-    const validationError = testTransaction.validateSync();
-    
-    res.json({
-      code: 200,
-      schemaPaths: Object.keys(Transaction.schema.paths),
-      requiredFields: Object.keys(Transaction.schema.paths).filter(path => Transaction.schema.paths[path].isRequired),
-      validationTest: validationError ? {
-        valid: false,
-        errors: validationError.errors
-      } : {
-        valid: true,
-        message: "Schema validation passed"
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      error: error.message
-    });
-  }
-};
-
-
-export const debugQRGeneration = async (req, res) => {
-  try {
-    const { amount, txnNote = "Payment for Order" } = req.body;
-    const merchantId = req.user.id;
-    const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
-
-    console.log("🔍 DEBUG QR Request:", { merchantId, merchantName, amount, txnNote });
-
-    // Use QrTransaction to avoid validation issues
-    const testData = {
-      transactionId: `DEBUG${Date.now()}`,
-      merchantId: merchantId,
-      merchantName: merchantName,
-      amount: parseFloat(amount) || 100,
-      status: "INITIATED",
-      txnNote: txnNote,
-      upiId: "enpay1.skypal@fino",
-      merchantVpa: "enpay1.skypal@fino",
-      merchantOrderId: `DEBUGORDER${Date.now()}`,
-      merchantHashId: "MERCDSH51Y7CD4YJLFIZR8NF"
-    };
-
-    console.log("🔍 Test Data for QrTransaction:", testData);
-
-    // Test with QrTransaction (no validation)
-    const testTransaction = new QrTransaction(testData);
-    await testTransaction.save();
-    
-    res.json({
-      code: 200,
-      message: "Debug transaction saved successfully to QrTransaction",
-      transactionId: testData.transactionId,
-      testData: testData,
-      collection: "qr_transactions"
-    });
-
-  } catch (error) {
-    console.error("❌ DEBUG Error:", error);
-    res.status(500).json({
-      code: 500,
-      message: "Debug failed",
-      error: error.message,
-      stack: error.stack
-    });
-  }
-};
-
-
-// Add this to your transactionController.js
-export const analyzeSchema = async (req, res) => {
-  try {
-    const db = Transaction.db;
-    
-    // Get collection validation rules
-    const collections = await db.listCollections({ name: 'transactions' }).toArray();
-    
-    if (collections.length === 0) {
-      return res.status(404).json({
-        code: 404,
-        message: "Transactions collection not found"
-      });
-    }
-
-    const collectionInfo = collections[0];
-    const validationRules = collectionInfo.options.validator || {};
-    
-    // Get a sample successful document
-    const sampleDoc = await db.collection('transactions').findOne({});
-    
-    // Get all field names from existing documents
-    const allDocs = await db.collection('transactions').find({}).limit(10).toArray();
-    const allFields = new Set();
-    allDocs.forEach(doc => {
-      Object.keys(doc).forEach(field => allFields.add(field));
-    });
-
-    res.json({
-      code: 200,
-      collectionName: collectionInfo.name,
-      validationRules: validationRules,
-      sampleDocument: sampleDoc,
-      allFields: Array.from(allFields),
-      analysis: {
-        hasStrictValidation: !!validationRules.$jsonSchema,
-        requiredFields: validationRules.$jsonSchema?.required || [],
-        fieldProperties: validationRules.$jsonSchema?.properties || {}
-      }
-    });
-    
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      error: error.message
-    });
-  }
+export const handleEnpaySuccess = (req, res) => {
+  console.log("🟡 Enpay Success URL hit:", req.query || req.body);
+  // Typically, you would redirect the user to a success page on your frontend
+  // and fetch the transaction status from your backend.
+  res.redirect('/payment-status?status=success&transactionId=' + (req.query.transactionId || ''));
 };
