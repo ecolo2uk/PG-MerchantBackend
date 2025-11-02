@@ -431,13 +431,12 @@ const syncQrTransactionToMain = async (qrTransaction, webhookData) => {
 };
 
 
-// Test endpoint to simulate payment webhook
+// In transactionController.js - FIX THE WEBHOOK FUNCTION
 export const simulatePaymentWebhook = async (req, res) => {
   try {
     const { transactionId, merchantOrderId, txnRefId, amount = 100, status = "SUCCESS" } = req.body;
 
     const webhookData = {
-      // Prioritize identifying field from request body
       transactionId: transactionId,
       merchantOrderId: merchantOrderId,
       txnRefId: txnRefId,
@@ -448,7 +447,12 @@ export const simulatePaymentWebhook = async (req, res) => {
       customerVpa: "customer@okicici",
       customerContact: "9876543210",
       settlementStatus: "Unsettled",
-      enpayTxnId: `ENPAY${Date.now()}` // Simulate Enpay Txn ID
+      enpayTxnId: `ENPAY${Date.now()}`,
+      // ADD MISSING REQUIRED FIELDS:
+      mid: `MID${Date.now()}`,
+      "Vendor Ref ID": `VENDORREF${Date.now()}`,
+      "Commission Amount": 0,
+      merchantName: "Test Merchant"
     };
 
     // Call webhook internally
@@ -481,7 +485,6 @@ export const simulatePaymentWebhook = async (req, res) => {
     });
   }
 };
-
 // Check Transaction Status - now checks main Transaction collection
 export const checkTransactionStatus = async (req, res) => {
   try {
