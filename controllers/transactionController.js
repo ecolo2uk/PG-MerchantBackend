@@ -31,6 +31,11 @@ export const getTransactions = async (req, res) => {
 };
 
 // UPDATED generateDynamicQR - Use ONLY QrTransaction
+// transactionController.js
+
+// ... (other imports and helper functions)
+
+// UPDATED generateDynamicQR - Use ONLY QrTransaction and integrate Enpay
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = "Payment for Order" } = req.body;
@@ -47,55 +52,81 @@ export const generateDynamicQR = async (req, res) => {
     }
 
     // Generate unique IDs
-    const transactionId = generateTransactionId();
-    const txnRefId = generateTxnRefId();
+    const transactionId = generateTransactionId(); // Your internal transaction ID
+    const txnRefId = generateTxnRefId(); // Your internal transaction reference ID
+    const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`; // Enpay requires a unique merchantOrderId
 
-    // Create UPI URL
-    const upiUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUrl)}`;
+    // Create UPI URL (for the QR image)
+    const upiId = "enpay1.skypal@fino"; // Using your default UPI ID
+    const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Data for QR Transaction collection ONLY (no validation issues)
+    // Data for QrTransaction collection
     const qrTransactionData = {
       transactionId: transactionId,
       merchantId: merchantId,
       merchantName: merchantName,
       amount: parseFloat(amount),
-      status: "INITIATED", // Start with INITIATED
+      status: "INITIATED",
       qrCode: qrCodeUrl,
-      paymentUrl: upiUrl,
+      paymentUrl: paymentUrl, // This is the upi:// link
       txnNote: txnNote,
       txnRefId: txnRefId,
-      upiId: "enpay1.skypal@fino",
-      merchantVpa: "enpay1.skypal@fino",
-      merchantOrderId: `ORDER${Date.now()}`,
-      merchantHashId: "MERCDSH51Y7CD4YJLFIZR8NF"
+      upiId: upiId,
+      merchantVpa: upiId, // Assuming merchantVpa is the same as upiId for now
+      merchantOrderId: merchantOrderId, // Store this for Enpay
+      merchantHashId: "MERCDSH51Y7CD4YJLFIZR8NF" // Your Enpay Hash ID
     };
 
+    // Attempt to initiate collect request with Enpay
+    let enpayInitiated = false;
+    let enpayResponse = null;
+    try {
+      enpayResponse = await EnpayService.initiateCollectRequest({
+        amount: parseFloat(amount),
+        merchantOrderId: merchantOrderId, // Use the generated merchantOrderId
+        transactionId: transactionId, // Use your internal transaction ID as merchantTrnId
+        txnNote: txnNote
+      });
+
+      if (enpayResponse.success) {
+        enpayInitiated = true;
+        // Optionally store Enpay's transaction ID if they return one
+        // qrTransactionData.enpayTxnId = enpayResponse.data.enpayTxnId;
+        console.log("✅ Enpay collect request initiated successfully.");
+      } else {
+        console.warn("⚠️ Enpay collect request failed but QR generated locally:", enpayResponse.error);
+        // You might want to update status to FAILED_ENPAY_INITIATION or similar
+      }
+    } catch (enpayError) {
+      console.error("❌ Error calling EnpayService:", enpayError.message);
+      // Continue without Enpay initiation if there's an error
+    }
+
     console.log("🟡 Saving to QR transactions collection...");
-    
-    // Save to QR collection (no validation issues)
     const qrTransaction = new QrTransaction(qrTransactionData);
     await qrTransaction.save();
     console.log("✅ Successfully saved to QR transactions collection");
 
-    // Return response
     res.json({
       code: 200,
       message: "QR generated successfully",
       transaction: {
         transactionId: qrTransaction.transactionId,
         amount: qrTransaction.amount,
-        status: qrTransaction.status, // INITIATED, not SUCCESS
+        status: qrTransaction.status,
         upiId: qrTransaction.upiId,
         txnRefId: qrTransaction.txnRefId,
         qrCode: qrTransaction.qrCode,
         paymentUrl: qrTransaction.paymentUrl,
         txnNote: qrTransaction.txnNote,
         merchantName: qrTransaction.merchantName,
-        createdAt: qrTransaction.createdAt
+        createdAt: qrTransaction.createdAt,
+        merchantOrderId: qrTransaction.merchantOrderId // Include this
       },
       qrCode: qrCodeUrl,
-      upiUrl: upiUrl
+      upiUrl: paymentUrl,
+      enpayInitiated: enpayInitiated // Inform the frontend if Enpay was called
     });
 
   } catch (error) {
@@ -108,6 +139,101 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
+// Generate default QR (without amount) - USING NEW COLLECTION
+export const generateDefaultQR = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
+
+    console.log("🟡 Default QR Request from:", merchantName);
+
+    // Generate unique IDs
+    const transactionId = generateTransactionId();
+    const txnRefId = generateTxnRefId();
+    const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`; // Enpay requires a unique merchantOrderId
+
+    // Create UPI URL without amount
+    const upiId = "enpay1.skypal@fino";
+    const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
+
+    // Create transaction data for QrTransaction collection
+    const transactionData = {
+      transactionId: transactionId,
+      merchantId: merchantId,
+      merchantName: merchantName,
+      amount: 0, // Default QR has 0 amount
+      status: "INITIATED",
+      qrCode: qrCodeUrl,
+      paymentUrl: paymentUrl,
+      txnNote: "Default QR Payment",
+      txnRefId: txnRefId,
+      upiId: upiId,
+      merchantVpa: upiId,
+      merchantOrderId: merchantOrderId // Store this for Enpay
+    };
+
+    // Attempt to initiate collect request with Enpay (even for default QR, if you want it tracked by Enpay)
+    let enpayInitiated = false;
+    let enpayResponse = null;
+    if (transactionData.amount > 0) { // Only call Enpay if there's an amount
+       try {
+        enpayResponse = await EnpayService.initiateCollectRequest({
+          amount: parseFloat(transactionData.amount),
+          merchantOrderId: merchantOrderId,
+          transactionId: transactionId,
+          txnNote: transactionData.txnNote
+        });
+
+        if (enpayResponse.success) {
+          enpayInitiated = true;
+          console.log("✅ Enpay collect request initiated successfully for default QR.");
+        } else {
+          console.warn("⚠️ Enpay collect request failed for default QR but QR generated locally:", enpayResponse.error);
+        }
+      } catch (enpayError) {
+        console.error("❌ Error calling EnpayService for default QR:", enpayError.message);
+      }
+    }
+
+
+    console.log("🟡 Saving default QR to new collection:", transactionData);
+    const transaction = new QrTransaction(transactionData);
+    await transaction.save();
+    console.log("✅ Default QR transaction saved:", transaction.transactionId);
+
+    res.json({
+      code: 200,
+      message: "Default QR generated successfully",
+      transaction: {
+        transactionId: transaction.transactionId,
+        amount: transaction.amount,
+        status: transaction.status,
+        upiId: transaction.upiId,
+        txnRefId: transaction.txnRefId,
+        qrCode: transaction.qrCode,
+        paymentUrl: transaction.paymentUrl,
+        txnNote: transaction.txnNote,
+        merchantName: transaction.merchantName,
+        createdAt: transaction.createdAt,
+        merchantOrderId: transaction.merchantOrderId
+      },
+      qrCode: qrCodeUrl,
+      upiUrl: paymentUrl,
+      enpayInitiated: enpayInitiated
+    });
+
+  } catch (error) {
+    console.error("❌ Default QR Error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Default QR generation failed",
+      error: error.message
+    });
+  }
+};
+
+// ... (rest of your transactionController.js)
 
 export const handlePaymentWebhook = async (req, res) => {
   try {
@@ -293,75 +419,7 @@ export const simulatePaymentWebhook = async (req, res) => {
   }
 };
 
-// Keep your other functions (generateDefaultQR, checkTransactionStatus, etc.) the same
-// ... [rest of your existing functions]
-// Generate default QR (without amount) - USING NEW COLLECTION
-export const generateDefaultQR = async (req, res) => {
-  try {
-    const merchantId = req.user.id;
-    const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
-    console.log("🟡 Default QR Request from:", merchantName);
-
-    // Generate unique IDs
-    const transactionId = generateTransactionId();
-    const txnRefId = generateTxnRefId();
-
-    // Create UPI URL without amount
-    const upiUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUrl)}`;
-
-    // Create transaction data for NEW collection
-    const transactionData = {
-      transactionId: transactionId,
-      merchantId: merchantId,
-      merchantName: merchantName,
-      amount: 0, // Default QR has 0 amount
-      status: "INITIATED",
-      qrCode: qrCodeUrl,
-      paymentUrl: upiUrl,
-      txnNote: "Default QR Payment",
-      txnRefId: txnRefId,
-      upiId: "enpay1.skypal@fino",
-      merchantVpa: "enpay1.skypal@fino"
-    };
-
-    console.log("🟡 Saving default QR to new collection:", transactionData);
-
-    // Save to NEW collection
-    const transaction = new QrTransaction(transactionData);
-    await transaction.save();
-
-    console.log("✅ Default QR transaction saved:", transaction.transactionId);
-
-    res.json({
-      code: 200,
-      message: "Default QR generated successfully",
-      transaction: {
-        transactionId: transaction.transactionId,
-        amount: transaction.amount,
-        status: transaction.status,
-        upiId: transaction.upiId,
-        txnRefId: transaction.txnRefId,
-        qrCode: transaction.qrCode,
-        paymentUrl: transaction.paymentUrl,
-        txnNote: transaction.txnNote,
-        merchantName: transaction.merchantName,
-        createdAt: transaction.createdAt
-      },
-      qrCode: qrCodeUrl,
-      upiUrl: upiUrl
-    });
-
-  } catch (error) {
-    console.error("❌ Default QR Error:", error);
-    res.status(500).json({
-      code: 500,
-      message: "Default QR generation failed",
-      error: error.message
-    });
-  }
-};
 
 // Check Transaction Status
 export const checkTransactionStatus = async (req, res) => {
