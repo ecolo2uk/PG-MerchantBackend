@@ -35,32 +35,78 @@ export const getTransactions = async (req, res) => {
 
 export const generateDynamicQR = async (req, res) => {
   try {
-    console.log("🟡 generateDynamicQR - Full request:", {
-      body: req.body,
-      headers: req.headers
-    });
+    console.log("🟡 generateDynamicQR - EMERGENCY DEBUG:");
+    console.log("Full req.body:", req.body);
+    console.log("req.body.amount:", req.body.amount);
+    console.log("Type of req.body.amount:", typeof req.body.amount);
+    console.log("req.body.amount toString:", req.body.amount?.toString());
+    
+    // 🔥 EMERGENCY FIX: Handle the [object Object] case
+    let amountValue = req.body.amount;
+    
+    // If we're getting [object Object], try to extract the actual value
+    if (amountValue && typeof amountValue === 'object' && amountValue.toString() === '[object Object]') {
+      console.log("🚨 EMERGENCY: Detected [object Object] - attempting recovery");
+      
+      // Try to get the raw body from different sources
+      if (req.rawBody) {
+        try {
+          const rawBodyString = req.rawBody.toString();
+          console.log("Raw body string:", rawBodyString);
+          const parsedBody = JSON.parse(rawBodyString);
+          amountValue = parsedBody.amount;
+          console.log("Recovered amount from raw body:", amountValue);
+        } catch (parseError) {
+          console.log("Raw body parsing failed:", parseError);
+        }
+      }
+      
+      // If still object, try alternative approach
+      if (typeof amountValue === 'object') {
+        // Last resort: try to access the property directly
+        amountValue = req.body.amount?.value || req.body.amount?.amount || req.body.data?.amount;
+        console.log("Alternative recovery attempt:", amountValue);
+      }
+    }
 
-    const { amount, txnNote = "Payment for Order" } = req.body;
+    const { txnNote = "Payment for Order" } = req.body;
     const merchantId = req.user.id;
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
-    console.log("🟡 Extracted values:", { amount, txnNote, merchantId, merchantName });
+    console.log("🟡 Final amount value to process:", amountValue, "type:", typeof amountValue);
 
-    // FIXED: Simple and robust amount validation
-    if (amount === undefined || amount === null) {
+    // Parse the amount with emergency fallbacks
+    let parsedAmount;
+    
+    if (typeof amountValue === 'number') {
+      parsedAmount = amountValue;
+    } else if (typeof amountValue === 'string') {
+      parsedAmount = parseFloat(amountValue);
+    } else if (amountValue === undefined || amountValue === null) {
       return res.status(400).json({
         code: 400,
         message: "Amount is required"
       });
+    } else {
+      // Emergency fallback: convert to string and parse
+      try {
+        const stringValue = String(amountValue);
+        parsedAmount = parseFloat(stringValue);
+        console.log("Emergency string conversion:", stringValue, "->", parsedAmount);
+      } catch (error) {
+        return res.status(400).json({
+          code: 400,
+          message: `Invalid amount format. Could not parse: ${amountValue}`
+        });
+      }
     }
 
-    const parsedAmount = parseFloat(amount);
-    console.log("🟡 Parsed amount:", parsedAmount);
+    console.log("🟡 Final parsed amount:", parsedAmount);
 
     if (isNaN(parsedAmount)) {
       return res.status(400).json({
         code: 400,
-        message: `Invalid amount: ${amount}. Please enter a valid number.`
+        message: `Amount must be a valid number. Received: ${amountValue} (type: ${typeof amountValue})`
       });
     }
 
@@ -73,21 +119,17 @@ export const generateDynamicQR = async (req, res) => {
 
     console.log("✅ Amount validation passed:", parsedAmount);
 
-    // Generate all required IDs
+    // Continue with the rest of your function...
     const transactionId = generateTransactionId();
     const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const mid = generateMid();
     const vendorRefId = generateVendorRefId();
 
-    console.log("🟡 Generated IDs:", { transactionId, txnRefId, merchantOrderId, mid, vendorRefId });
-
-    // Create UPI URL and QR code
     const upiId = "enpay1.skypal@fino";
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Create transaction data with ALL required fields
     const qrTransactionData = {
       transactionId,
       merchantId,
@@ -97,12 +139,12 @@ export const generateDynamicQR = async (req, res) => {
       qrCode: qrCodeUrl,
       paymentUrl,
       txnNote,
-      txnRefId, // Required field
+      txnRefId,
       upiId,
       merchantVpa: upiId,
       merchantOrderId,
-      mid, // Required field
-      "Vendor Ref ID": vendorRefId, // Required field
+      mid,
+      "Vendor Ref ID": vendorRefId,
       "Commission Amount": 0,
       "Settlement Status": "NA"
     };

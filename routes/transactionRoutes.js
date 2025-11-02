@@ -1,4 +1,3 @@
-// routes/transactionRoutes.js - UPDATED
 import express from "express";
 import {
   getTransactions,
@@ -15,12 +14,12 @@ import {
   analyzeSchema,
   simulatePaymentWebhook,
   listAllEndpoints,
-  testAmountEndpoint
+  testAmountEndpoint  // Make sure this is imported
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
-router.post("/test-amount", authenticateMerchant, testAmountEndpoint);
+
 // All routes protected with merchant authentication
 router.get("/", authenticateMerchant, getTransactions);
 router.post("/generate-qr", authenticateMerchant, generateDynamicQR);
@@ -31,13 +30,16 @@ router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
 router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
 router.get("/debug", authenticateMerchant, debugTransactions);
 router.get("/check-schema", authenticateMerchant, checkSchema);
-// In your transactionRoutes.js, add:
+
+// 🔥 CRITICAL: Add the test endpoint
+router.post("/test-amount", authenticateMerchant, testAmountEndpoint);
+
 router.post("/debug-qr", authenticateMerchant, debugQRGeneration);
-// Add route
 router.get("/analyze-schema", authenticateMerchant, analyzeSchema);
+
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
 router.post("/simulate-webhook", authenticateMerchant, simulatePaymentWebhook);
-// In transactionRoutes.js
 router.get("/endpoints", listAllEndpoints);
+
 export default router;
