@@ -1,34 +1,40 @@
-// routes/transactionRoutes.js
-import express from 'express';
+// routes/transactionRoutes.js - UPDATED
+import express from "express";
 import {
   getTransactions,
   generateDynamicQR,
   generateDefaultQR,
+  checkTransactionStatus,
   handlePaymentWebhook,
-  simulatePaymentWebhook,
-  handleEnpayReturn,
-  handleEnpaySuccess,
-  debugQRController
-} from '../controllers/transactionController.js';
-
-import { authenticateMerchant } from '../middleware/authMiddleware.js'; // <-- Import your middleware
+  getTransactionDetails,
+  downloadReceipt,
+  initiateRefund,
+  debugTransactions,
+  checkSchema,
+  debugQRGeneration,
+  analyzeSchema,
+  simulatePaymentWebhook
+} from "../controllers/transactionController.js";
+import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Public routes (no authentication needed for webhooks/return URLs from Enpay)
-// IMPORTANT: These must be publicly accessible for Enpay to hit them.
-router.post('/webhook', handlePaymentWebhook);
-router.get('/enpay-return', handleEnpayReturn);
-router.post('/enpay-return', handleEnpayReturn);
-router.get('/enpay-success', handleEnpaySuccess);
-router.post('/enpay-success', handleEnpaySuccess);
-
-// Authenticated routes: Apply authenticateMerchant middleware here
-// All these routes require a valid merchant token to access
-router.get('/', authenticateMerchant, getTransactions); // <-- Apply authenticateMerchant
-router.post('/generate-dynamic-qr', authenticateMerchant, generateDynamicQR); // <-- Apply authenticateMerchant
-router.post('/generate-default-qr', authenticateMerchant, generateDefaultQR); // <-- Apply authenticateMerchant
-router.post('/simulate-webhook', authenticateMerchant, simulatePaymentWebhook); // <-- Apply authenticateMerchant
-router.post('/debug-qr', authenticateMerchant, debugQRController);
+// All routes protected with merchant authentication
+router.get("/", authenticateMerchant, getTransactions);
+router.post("/generate-qr", authenticateMerchant, generateDynamicQR);
+router.post("/default-qr", authenticateMerchant, generateDefaultQR);
+router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatus);
+router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
+router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
+router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
+router.get("/debug", authenticateMerchant, debugTransactions);
+router.get("/check-schema", authenticateMerchant, checkSchema);
+// In your transactionRoutes.js, add:
+router.post("/debug-qr", authenticateMerchant, debugQRGeneration);
+// Add route
+router.get("/analyze-schema", authenticateMerchant, analyzeSchema);
+// Webhook doesn't need authentication
+router.post("/webhook", handlePaymentWebhook);
+router.post("/simulate-webhook", authenticateMerchant, simulatePaymentWebhook);
 
 export default router;

@@ -1,19 +1,26 @@
-// models/Transaction.js - YOUR MAIN TRANSACTION SCHEMA
 import mongoose from 'mongoose';
 
 const mainTransactionSchema = new mongoose.Schema({
-  transactionId: {
-    type: String,
-    required: true,
-    unique: true // Assuming transactionId should be unique in the main table
+  _id: { // Matches your $jsonSchema's _id
+    type: mongoose.Schema.Types.ObjectId,
+    auto: true
   },
-  merchantOrderId: {
-    type: String,
-    unique: true,
-    sparse: true // Allow nulls, but if present, must be unique
+  amount: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  "Commission Amount": {
+    type: Number,
+    required: true,
+    default: 0
+  },
+  createdAt: { // Ensure this matches your expected format
+    type: Date,
+    default: Date.now
   },
   merchantId: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId, // Assuming merchantId is ObjectId in main
     required: true
   },
   merchantName: {
@@ -21,10 +28,16 @@ const mainTransactionSchema = new mongoose.Schema({
     required: true,
     default: "SKYPAL SYSTEM PRIVATE LIMITED"
   },
-  amount: {
-    type: Number,
+  mid: {
+    type: String,
     required: true,
-    min: 0
+    // default: function() { return `MID${Date.now()}`; } // Removed function for direct assignment
+  },
+  "Settlement Status": {
+    type: String,
+    required: true,
+    enum: ["Settled", "Unsettled", "NA"],
+    default: "Unsettled"
   },
   status: {
     type: String,
@@ -32,11 +45,43 @@ const mainTransactionSchema = new mongoose.Schema({
     enum: ['INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'],
     default: 'INITIATED'
   },
+  transactionId: { // Your unique internal transaction ID
+    type: String,
+    required: true,
+    unique: true
+  },
+  "Vendor Ref ID": {
+    type: String,
+    required: true,
+    // default: function() { return this.txnRefId || `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`; }
+  },
+  // Optional fields from schema
+  "Customer Contact No": { // Changed type to String as it's often stored as string
+    type: String
+  },
+  "Customer Name": {
+    type: String
+  },
+  "Customer VPA": {
+    type: String
+  },
+  "Failure Reasons": {
+    type: String
+  },
+  "Vendor Txn ID": {
+    type: String
+  },
+  // Additional fields not in $jsonSchema but in your Mongoose schema
+  merchantOrderId: { // For Enpay tracking
+    type: String,
+    unique: true,
+    sparse: true
+  },
   txnNote: {
     type: String,
     default: 'Payment for Order'
   },
-  txnRefId: { // Your internal reference ID
+  txnRefId: { // Your internal transaction reference ID
     type: String
   },
   upiId: {
@@ -56,52 +101,10 @@ const mainTransactionSchema = new mongoose.Schema({
   enpayTxnId: { // Enpay's internal transaction ID
     type: String,
     default: null
-  },
-  customerName: { type: String, default: null },
-  customerVpa: { type: String, default: null },
-  customerContact: { type: String, default: null },
-  "Commission Amount": { // From your original schema, ensure it's here
-    type: Number,
-    required: true,
-    default: 0
-  },
-  mid: { // From your original schema
-    type: String,
-    required: true,
-    default: function() { return `MID${Date.now()}`; }
-  },
- "Settlement Status": { // From your original schema
-    type: String,
-    required: true,
-    enum: ["Settled", "Unsettled", "NA"],
-    default: "Unsettled"
-},
-"mid": {
-  type: String,
-  required: true,
-  default: function() { return `MID${Date.now()}`; }
-},
-"Vendor Ref ID": {
-    type: String,
-    required: true,
-    default: function() { return this.txnRefId || `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`; }
-},
-
-  "Failure Reasons": {
-    type: String,
-    default: null
-  },
-  "Vendor Txn ID": {
-    type: String,
-    default: null
-  },
-  createdAt: { // Ensure this matches your expected format
-    type: Date,
-    default: Date.now
   }
 }, {
   collection: 'transactions', // Explicitly set to your main transactions collection
-  timestamps: true // Mongoose will manage `createdAt` and `updatedAt`
+  timestamps: { createdAt: false, updatedAt: true } // Mongoose will manage createdAt (explicitly defined) and updatedAt
 });
 
 export default mongoose.model('Transaction', mainTransactionSchema);

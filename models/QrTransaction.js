@@ -1,14 +1,13 @@
-// models/QrCodeTransaction.js - FOR QR SPECIFIC DATA (if needed)
 import mongoose from 'mongoose';
 
-const qrCodeTransactionSchema = new mongoose.Schema({
-  qrTransactionId: { // Renamed to avoid confusion with main transactionId
+const qrTransactionSchema = new mongoose.Schema({
+  transactionId: { // Use transactionId for consistency, as it's the internal ref
     type: String,
     required: true,
     unique: true
   },
   merchantId: {
-    type: String,
+    type: String, // Keep as String as it comes from req.user.id
     required: true
   },
   merchantName: {
@@ -22,21 +21,21 @@ const qrCodeTransactionSchema = new mongoose.Schema({
   status: {
     type: String,
     default: 'INITIATED',
-    enum: ['INITIATED', 'PENDING', 'GENERATED', 'FAILED_ENPAY_INITIATION']
+    enum: ['INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'GENERATED', 'REFUNDED'] // Added SUCCESS, FAILED, REFUNDED
   },
-  qrCodeUrl: { // URL to the generated QR code image
+  qrCode: { // Consistent with main Transaction model
     type: String
   },
-  upiPaymentUrl: { // The raw UPI deep link
+  paymentUrl: { // Consistent with main Transaction model (raw UPI deep link)
     type: String
   },
   txnNote: {
     type: String,
     default: 'Payment for Order'
   },
-  txnRefId: { // Your internal reference ID
+  txnRefId: { // Your internal transaction reference ID
     type: String,
-    unique: true // Should be unique
+    unique: true
   },
   upiId: {
     type: String,
@@ -51,17 +50,43 @@ const qrCodeTransactionSchema = new mongoose.Schema({
     unique: true,
     sparse: true
   },
-  enpayInitiationStatus: { // Track if Enpay initiation was attempted/successful
+  enpayInitiationStatus: {
     type: String,
     enum: ['NOT_ATTEMPTED', 'ATTEMPTED_SUCCESS', 'ATTEMPTED_FAILED'],
     default: 'NOT_ATTEMPTED'
   },
-  enpayError: { // Store Enpay error message if initiation failed
+  enpayError: {
     type: String
+  },
+  // Fields to store customer info from webhook
+  customerName: { type: String, default: null },
+  customerVpa: { type: String, default: null },
+  customerContact: { type: String, default: null },
+  settlementStatus: { // Added for webhook updates
+    type: String,
+    enum: ["Settled", "Unsettled", "NA"],
+    default: "Unsettled"
+  },
+  "Commission Amount": { // Added from main schema for consistency if needed here
+    type: Number,
+    default: 0
+  },
+  mid: { // Added from main schema
+    type: String
+  },
+  "Vendor Ref ID": { // Added from main schema
+    type: String
+  },
+  "Vendor Txn ID": { // Added from main schema
+    type: String
+  },
+  "Failure Reasons": { // Added from main schema
+    type: String,
+    default: null
   }
 }, {
-  collection: 'qr_code_transactions', // New collection name for QR specific data
-  timestamps: true
+  collection: 'qr_transactions', // Use this collection for QR-specific data
+  timestamps: true // Mongoose will manage createdAt and updatedAt
 });
 
-export default mongoose.model('QrCodeTransaction', qrCodeTransactionSchema);
+export default mongoose.model('QrTransaction', qrTransactionSchema);
