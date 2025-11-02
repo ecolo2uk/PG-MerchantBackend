@@ -1,6 +1,6 @@
 import Transaction from "../models/Transaction.js";
 import QrTransaction from "../models/QrTransaction.js";
-import EnpayService from "../services/enpayService.js";
+
 // Helper functions
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
@@ -905,4 +905,3 @@ export const analyzeSchema = async (req, res) => {
     });
   }
 };
-
