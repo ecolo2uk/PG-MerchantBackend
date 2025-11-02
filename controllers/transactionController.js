@@ -473,3 +473,14 @@ export const handleEnpaySuccess = (req, res) => {
   // and fetch the transaction status from your backend.
   res.redirect('/payment-status?status=success&transactionId=' + (req.query.transactionId || ''));
 };
+
+export const debugQR = async (req, res) => {
+    try {
+        // Your debug logic here, e.g., create a dummy transaction, log info
+        console.log("Debug QR endpoint hit with payload:", req.body);
+        res.json({ code: 200, message: "Debug QR received", data: req.body });
+    } catch (error) {
+        console.error("Debug QR error:", error);
+        res.status(500).json({ code: 500, message: "Debug QR failed", error: error.message });
+    }
+};

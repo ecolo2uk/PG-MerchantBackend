@@ -70,21 +70,21 @@ const mainTransactionSchema = new mongoose.Schema({
     required: true,
     default: function() { return `MID${Date.now()}`; }
   },
-  "Settlement Status": { // From your original schema
+ "Settlement Status": { // From your original schema
     type: String,
     required: true,
     enum: ["Settled", "Unsettled", "NA"],
     default: "Unsettled"
-  },
-  "mid": {
+},
+"mid": {
   type: String,
   required: true,
   default: function() { return `MID${Date.now()}`; }
 },
 "Vendor Ref ID": {
-  type: String,
-  required: true,
-  default: function() { return this.txnRefId || `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`; }
+    type: String,
+    required: true,
+    default: function() { return this.txnRefId || `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`; }
 },
 
   "Failure Reasons": {
