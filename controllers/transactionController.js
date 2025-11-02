@@ -1,5 +1,5 @@
 import Transaction from "../models/Transaction.js";
-import QrTransaction from "../models/QrTransaction.js"; // Corrected import
+// import QrTransaction from "../models/QrTransaction.js"; // Corrected import
 import EnpayService from "../services/enpayService.js";
 import mongoose from 'mongoose'; // Import mongoose for ObjectId
 
@@ -926,6 +926,32 @@ export const analyzeSchema = async (req, res) => {
       }
     });
     
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message
+    });
+  }
+};
+
+// Add to your transactionController.js
+export const listAllEndpoints = async (req, res) => {
+  try {
+    res.json({
+      code: 200,
+      message: "Available endpoints",
+      endpoints: [
+        "GET /api/transactions",
+        "POST /api/transactions/generate-dynamic-qr",
+        "POST /api/transactions/generate-default-qr", 
+        "POST /api/transactions/generate-qr",
+        "POST /api/transactions/default-qr",
+        "GET /api/transactions/debug",
+        "POST /api/transactions/debug-qr",
+        "POST /api/transactions/simulate-webhook"
+      ],
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
     res.status(500).json({
       code: 500,

@@ -13,7 +13,8 @@ import {
   checkSchema,
   debugQRGeneration,
   analyzeSchema,
-  simulatePaymentWebhook
+  simulatePaymentWebhook,
+  listAllEndpoints
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -21,8 +22,8 @@ const router = express.Router();
 
 // All routes protected with merchant authentication
 router.get("/", authenticateMerchant, getTransactions);
-router.post("/generate-dynamic-qr", authenticateMerchant, generateDynamicQR);
-router.post("/generate-default-qr", authenticateMerchant, generateDefaultQR);
+router.post("/generate-qr", authenticateMerchant, generateDynamicQR);
+router.post("/default-qr", authenticateMerchant, generateDefaultQR);
 router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatus);
 router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
 router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
@@ -36,5 +37,6 @@ router.get("/analyze-schema", authenticateMerchant, analyzeSchema);
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
 router.post("/simulate-webhook", authenticateMerchant, simulatePaymentWebhook);
-
+// In transactionRoutes.js
+router.get("/endpoints", listAllEndpoints);
 export default router;

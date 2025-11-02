@@ -29,5 +29,37 @@ app.use('/api/dashboard', dashboardRoutes); // Add this line
 app.get('/', (req, res) => {
   res.send('Welcome to the PG-Merchant Backend API!');
 });
+
+// Add this to your main server file (app.js)
+app.get('/api/debug-routes', (req, res) => {
+  const routes = [];
+  
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) {
+      // Routes registered directly on the app
+      routes.push({
+        path: middleware.route.path,
+        methods: Object.keys(middleware.route.methods)
+      });
+    } else if (middleware.name === 'router') {
+      // Router middleware
+      middleware.handle.stack.forEach((handler) => {
+        if (handler.route) {
+          routes.push({
+            path: handler.route.path,
+            methods: Object.keys(handler.route.methods),
+            source: 'router'
+          });
+        }
+      });
+    }
+  });
+  
+  res.json({
+    code: 200,
+    totalRoutes: routes.length,
+    routes: routes
+  });
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
