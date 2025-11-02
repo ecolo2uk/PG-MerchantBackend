@@ -1,25 +1,33 @@
-// controllers/transactionController.js - COMPLETE VERSION
 import Transaction from "../models/Transaction.js";
+import QrTransaction from "../models/QrTransaction.js"; // Import the new model
 
 // Helper functions for ID generation
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
-const generateVendorRefId = () => `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-const generateMerchantOrderId = () => `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-const generateMid = () => `MID${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-// Get transactions for logged-in merchant
+// Get transactions for logged-in merchant (from both collections)
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
     console.log("🟡 Fetching transactions for merchant:", merchantId);
 
-    const transactions = await Transaction.find({ merchantId })
+    // Get transactions from main collection
+    const mainTransactions = await Transaction.find({ merchantId })
       .sort({ createdAt: -1 })
       .select('-__v');
 
-    console.log(`✅ Found ${transactions.length} transactions for merchant ${merchantId}`);
-    res.json(transactions);
+    // Get QR transactions from new collection
+    const qrTransactions = await QrTransaction.find({ merchantId })
+      .sort({ createdAt: -1 })
+      .select('-__v');
+
+    // Combine both sets of transactions
+    const allTransactions = [...mainTransactions, ...qrTransactions]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    console.log(`✅ Found ${allTransactions.length} total transactions for merchant ${merchantId}`);
+    res.json(allTransactions);
+
   } catch (error) {
     console.error("❌ Error fetching transactions:", error);
     res.status(500).json({ 
@@ -30,139 +38,73 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// TEMPORARY FIX - Minimal working version
-// controllers/transactionController.js - BYPASS VALIDATION VERSION
+// Generate QR with amount - USING NEW COLLECTION
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = "Payment for Order" } = req.body;
     const merchantId = req.user.id;
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
-    console.log("🟡 QR Request - Bypassing validation:", { merchantId, merchantName, amount });
+    console.log("🟡 Dynamic QR Request:", { merchantId, merchantName, amount, txnNote });
 
+    // Validation
     if (!amount || amount <= 0) {
       return res.status(400).json({
         code: 400,
-        message: "Valid amount is required"
+        message: "Valid amount is required and must be greater than 0"
       });
     }
 
-    // Generate IDs
-    const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+    // Generate unique IDs
+    const transactionId = generateTransactionId();
+    const txnRefId = generateTxnRefId();
 
     // Create UPI URL
     const upiUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUrl)}`;
 
-    // Create transaction data that matches EXACT schema
+    // Create transaction data for NEW collection
     const transactionData = {
-      // REQUIRED fields from your schema
       transactionId: transactionId,
-      amount: parseFloat(amount),
-      "Commission Amount": 0,
-      createdAt: new Date().toISOString(),
-      merchantId: new mongoose.Types.ObjectId(merchantId), // Convert to ObjectId
+      merchantId: merchantId,
       merchantName: merchantName,
-      mid: `MID${Date.now()}`,
-      "Settlement Status": "Unsettled",
+      amount: parseFloat(amount),
       status: "INITIATED",
-      "Vendor Ref ID": `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-
-      // OPTIONAL fields with proper types
-      "Customer Contact No": { "": null }, // Match the object structure from your schema
-      "Customer Name": null,
-      "Customer VPA": null,
-      "Failure Reasons": null,
-      "Vendor Txn ID": null,
-
-      // Additional fields for QR
-      merchantOrderId: `ORDER${Date.now()}`,
       qrCode: qrCodeUrl,
       paymentUrl: upiUrl,
       txnNote: txnNote,
       txnRefId: txnRefId,
       upiId: "enpay1.skypal@fino",
-      currency: "INR"
+      merchantVpa: "enpay1.skypal@fino"
     };
 
-    console.log("🟡 Transaction Data for MongoDB:", JSON.stringify(transactionData, null, 2));
+    console.log("🟡 Saving to QR transactions collection:", transactionData);
 
-    // METHOD 1: Try direct MongoDB insert with bypass options
-    try {
-      const db = Transaction.db;
-      const collection = db.collection('transactions');
-      
-      // Insert with bypassDocumentValidation
-      const result = await collection.insertOne(transactionData, { 
-        bypassDocumentValidation: true 
-      });
-      
-      console.log("✅ MongoDB insert successful:", result.insertedId);
+    // Save to NEW collection (no schema validation issues)
+    const transaction = new QrTransaction(transactionData);
+    await transaction.save();
 
-      res.json({
-        code: 200,
-        message: "QR generated successfully",
-        transaction: {
-          transactionId: transactionData.transactionId,
-          amount: transactionData.amount,
-          status: transactionData.status,
-          qrCode: qrCodeUrl,
-          paymentUrl: upiUrl,
-          merchantName: merchantName,
-          createdAt: transactionData.createdAt
-        },
-        qrCode: qrCodeUrl,
-        upiUrl: upiUrl
-      });
+    console.log("✅ QR Transaction saved successfully:", transaction.transactionId);
 
-    } catch (mongoError) {
-      console.error("❌ MongoDB insert failed:", mongoError);
-      
-      // METHOD 2: Try using Mongoose with validation disabled
-      try {
-        const transaction = new Transaction(transactionData);
-        await transaction.save({ validateBeforeSave: false });
-        
-        console.log("✅ Mongoose save successful (validation bypassed)");
-        
-        res.json({
-          code: 200,
-          message: "QR generated successfully (validation bypassed)",
-          transaction: {
-            transactionId: transactionData.transactionId,
-            amount: transactionData.amount,
-            status: transactionData.status,
-            qrCode: qrCodeUrl,
-            paymentUrl: upiUrl
-          },
-          qrCode: qrCodeUrl,
-          upiUrl: upiUrl
-        });
-        
-      } catch (mongooseError) {
-        console.error("❌ Mongoose save also failed:", mongooseError);
-        
-        // METHOD 3: Return QR without saving to database
-        console.log("🟡 Returning QR without database save");
-        
-        res.json({
-          code: 200,
-          message: "QR generated successfully (database save skipped)",
-          transaction: {
-            transactionId: transactionData.transactionId,
-            amount: transactionData.amount,
-            status: "INITIATED",
-            qrCode: qrCodeUrl,
-            paymentUrl: upiUrl,
-            merchantName: merchantName
-          },
-          qrCode: qrCodeUrl,
-          upiUrl: upiUrl,
-          warning: "Transaction not saved to database due to schema validation"
-        });
-      }
-    }
+    // Return response
+    res.json({
+      code: 200,
+      message: "QR generated successfully",
+      transaction: {
+        transactionId: transaction.transactionId,
+        amount: transaction.amount,
+        status: transaction.status,
+        upiId: transaction.upiId,
+        txnRefId: transaction.txnRefId,
+        qrCode: transaction.qrCode,
+        paymentUrl: transaction.paymentUrl,
+        txnNote: transaction.txnNote,
+        merchantName: transaction.merchantName,
+        createdAt: transaction.createdAt
+      },
+      qrCode: qrCodeUrl,
+      upiUrl: upiUrl
+    });
 
   } catch (error) {
     console.error("❌ QR Generation Error:", error);
@@ -173,101 +115,64 @@ export const generateDynamicQR = async (req, res) => {
     });
   }
 };
-// Generate default QR (without amount) - EXACT SCHEMA COMPLIANT
+
+// Generate default QR (without amount) - USING NEW COLLECTION
 export const generateDefaultQR = async (req, res) => {
   try {
     const merchantId = req.user.id;
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
-    console.log("🟡 Default QR - Bypassing validation");
+    console.log("🟡 Default QR Request from:", merchantName);
 
-    // Generate IDs
-    const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+    // Generate unique IDs
+    const transactionId = generateTransactionId();
+    const txnRefId = generateTxnRefId();
 
     // Create UPI URL without amount
     const upiUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUrl)}`;
 
-    // Create transaction data
+    // Create transaction data for NEW collection
     const transactionData = {
-      // REQUIRED fields
       transactionId: transactionId,
-      amount: 0,
-      "Commission Amount": 0,
-      createdAt: new Date().toISOString(),
-      merchantId: new mongoose.Types.ObjectId(merchantId),
+      merchantId: merchantId,
       merchantName: merchantName,
-      mid: `MID${Date.now()}`,
-      "Settlement Status": "Unsettled",
+      amount: 0, // Default QR has 0 amount
       status: "INITIATED",
-      "Vendor Ref ID": `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-
-      // OPTIONAL fields
-      "Customer Contact No": { "": null },
-      "Customer Name": null,
-      "Customer VPA": null,
-      "Failure Reasons": null,
-      "Vendor Txn ID": null,
-
-      // QR fields
-      merchantOrderId: `ORDER${Date.now()}`,
       qrCode: qrCodeUrl,
       paymentUrl: upiUrl,
       txnNote: "Default QR Payment",
       txnRefId: txnRefId,
       upiId: "enpay1.skypal@fino",
-      currency: "INR"
+      merchantVpa: "enpay1.skypal@fino"
     };
 
-    console.log("🟡 Default QR Data:", transactionData);
+    console.log("🟡 Saving default QR to new collection:", transactionData);
 
-    // Try MongoDB insert with bypass
-    try {
-      const db = Transaction.db;
-      const collection = db.collection('transactions');
-      
-      const result = await collection.insertOne(transactionData, { 
-        bypassDocumentValidation: true 
-      });
-      
-      console.log("✅ Default QR saved to MongoDB:", result.insertedId);
+    // Save to NEW collection
+    const transaction = new QrTransaction(transactionData);
+    await transaction.save();
 
-      res.json({
-        code: 200,
-        message: "Default QR generated successfully",
-        transaction: {
-          transactionId: transactionData.transactionId,
-          amount: transactionData.amount,
-          status: transactionData.status,
-          qrCode: qrCodeUrl,
-          paymentUrl: upiUrl,
-          merchantName: merchantName
-        },
-        qrCode: qrCodeUrl,
-        upiUrl: upiUrl
-      });
+    console.log("✅ Default QR transaction saved:", transaction.transactionId);
 
-    } catch (mongoError) {
-      console.error("❌ MongoDB insert failed, returning QR without save");
-      
-      // Return QR without saving
-      res.json({
-        code: 200,
-        message: "Default QR generated successfully (database save skipped)",
-        transaction: {
-          transactionId: transactionData.transactionId,
-          amount: transactionData.amount,
-          status: "INITIATED",
-          qrCode: qrCodeUrl,
-          paymentUrl: upiUrl,
-          merchantName: merchantName
-        },
-        qrCode: qrCodeUrl,
-        upiUrl: upiUrl,
-        warning: "Transaction not saved to database"
-      });
-    }
+    res.json({
+      code: 200,
+      message: "Default QR generated successfully",
+      transaction: {
+        transactionId: transaction.transactionId,
+        amount: transaction.amount,
+        status: transaction.status,
+        upiId: transaction.upiId,
+        txnRefId: transaction.txnRefId,
+        qrCode: transaction.qrCode,
+        paymentUrl: transaction.paymentUrl,
+        txnNote: transaction.txnNote,
+        merchantName: transaction.merchantName,
+        createdAt: transaction.createdAt
+      },
+      qrCode: qrCodeUrl,
+      upiUrl: upiUrl
+    });
 
   } catch (error) {
     console.error("❌ Default QR Error:", error);
