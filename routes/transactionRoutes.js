@@ -11,7 +11,8 @@ import {
   initiateRefund,
   debugTransactions,
   checkSchema,
-  debugQRGeneration
+  debugQRGeneration,
+  analyzeSchema
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -29,6 +30,8 @@ router.get("/debug", authenticateMerchant, debugTransactions);
 router.get("/check-schema", authenticateMerchant, checkSchema);
 // In your transactionRoutes.js, add:
 router.post("/debug-qr", authenticateMerchant, debugQRGeneration);
+// Add route
+router.get("/analyze-schema", authenticateMerchant, analyzeSchema);
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
 
