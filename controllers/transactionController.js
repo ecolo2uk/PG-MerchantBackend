@@ -188,95 +188,49 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-// IMPROVED SYNC FUNCTION - Add this to your transactionController.js
-const syncQrTransactionToMain = async (qrTransaction, webhookData) => {
+// Test endpoint to debug the request
+export const testAmountEndpoint = async (req, res) => {
   try {
-    console.log("🔄 Syncing QR transaction to main collection...");
+    console.log("🔍 TEST ENDPOINT - Full request details:");
+    console.log("Headers:", req.headers);
+    console.log("Body:", req.body);
+    console.log("Body type:", typeof req.body);
+    console.log("Amount value:", req.body.amount);
+    console.log("Amount type:", typeof req.body.amount);
+    console.log("Content-Type:", req.get('Content-Type'));
+
+    // Test different parsing methods
+    const amountFromBody = req.body.amount;
+    const parsedAmount = parseFloat(amountFromBody);
     
-    let mainTransaction;
-    const lookupId = qrTransaction?.transactionId || webhookData?.transactionId;
+    console.log("Parsing test:");
+    console.log("Original amount:", amountFromBody);
+    console.log("Parsed amount:", parsedAmount);
+    console.log("Is NaN:", isNaN(parsedAmount));
 
-    // Try to find in main Transaction collection first
-    if (lookupId) {
-      mainTransaction = await Transaction.findOne({ transactionId: lookupId });
-    }
-    if (!mainTransaction && webhookData?.merchantOrderId) {
-      mainTransaction = await Transaction.findOne({ merchantOrderId: webhookData.merchantOrderId });
-    }
-    if (!mainTransaction && webhookData?.txnRefId) {
-      mainTransaction = await Transaction.findOne({ txnRefId: webhookData.txnRefId });
-    }
-
-    // Prepare transaction data
-    const source = qrTransaction || webhookData;
-    const merchantId = source.merchantId || (qrTransaction ? qrTransaction.merchantId : null);
-
-    if (!merchantId) {
-      console.error("❌ No merchantId found for transaction");
-      return null;
-    }
-
-    const transactionData = {
-      transactionId: source.transactionId || generateTransactionId(),
-      merchantId: new mongoose.Types.ObjectId(merchantId),
-      merchantName: source.merchantName || "SKYPAL SYSTEM PRIVATE LIMITED",
-      amount: parseFloat(source.amount) || 0,
-      status: source.status || webhookData?.status || "PENDING",
-      qrCode: source.qrCode || null,
-      paymentUrl: source.paymentUrl || null,
-      txnNote: source.txnNote || "Payment for Order",
-      txnRefId: source.txnRefId || generateTxnRefId(),
-      upiId: source.upiId || "enpay1.skypal@fino",
-      merchantVpa: source.merchantVpa || "enpay1.skypal@fino",
-      merchantOrderId: source.merchantOrderId || `ORDER${Date.now()}`,
-      "Commission Amount": source["Commission Amount"] || 0,
-      createdAt: source.createdAt || new Date(),
-      mid: source.mid || generateMid(),
-      "Settlement Status": source.settlementStatus || webhookData?.settlementStatus || "Unsettled",
-      "Vendor Ref ID": source["Vendor Ref ID"] || generateVendorRefId(),
-      "Customer Name": source.customerName || source["Customer Name"] || webhookData?.customerName || null,
-      "Customer VPA": source.customerVpa || source["Customer VPA"] || webhookData?.customerVpa || null,
-      "Customer Contact No": source.customerContact || source["Customer Contact No"] || webhookData?.customerContact || null,
-      "Failure Reasons": source.failureReason || source["Failure Reasons"] || webhookData?.failureReason || null,
-      "Vendor Txn ID": source.vendorTxnId || source["Vendor Txn ID"] || webhookData?.vendorTxnId || null,
-      enpayTxnId: source.enpayTxnId || webhookData?.enpayTxnId || null
-    };
-
-    // If main transaction exists, update it
-    if (mainTransaction) {
-      console.log(`🔄 Updating existing main transaction: ${mainTransaction.transactionId}`);
-      
-      Object.keys(transactionData).forEach(key => {
-        if (transactionData[key] !== undefined && transactionData[key] !== null) {
-          mainTransaction[key] = transactionData[key];
-        }
-      });
-      
-      await mainTransaction.save();
-      console.log(`✅ Main transaction ${mainTransaction.transactionId} updated to: ${mainTransaction.status}`);
-      return mainTransaction;
-    } 
-    // Create new main transaction
-    else {
-      console.log("🆕 Creating new main transaction from QR/webhook data");
-      
-      const newMainTransaction = new Transaction(transactionData);
-      
-      // Validate before saving
-      const validationError = newMainTransaction.validateSync();
-      if (validationError) {
-        console.error("❌ Validation Error:", validationError.errors);
-        throw new Error(`Validation failed: ${JSON.stringify(validationError.errors)}`);
+    res.json({
+      code: 200,
+      message: "Test endpoint working",
+      receivedBody: req.body,
+      amountDetails: {
+        original: amountFromBody,
+        type: typeof amountFromBody,
+        parsed: parsedAmount,
+        isNumber: typeof parsedAmount === 'number' && !isNaN(parsedAmount),
+        isValid: typeof parsedAmount === 'number' && !isNaN(parsedAmount) && parsedAmount > 0
+      },
+      headers: {
+        contentType: req.get('Content-Type'),
+        authorization: req.get('Authorization') ? 'Present' : 'Missing'
       }
-      
-      await newMainTransaction.save();
-      console.log(`✅ Created new main transaction: ${newMainTransaction.transactionId}`);
-      return newMainTransaction;
-    }
+    });
 
   } catch (error) {
-    console.error("❌ Sync Error:", error);
-    throw error;
+    console.error("❌ Test endpoint error:", error);
+    res.status(500).json({
+      code: 500,
+      error: error.message
+    });
   }
 };
 
@@ -463,7 +417,76 @@ export const handlePaymentWebhook = async (req, res) => {
   }
 };
 
+// Helper function to sync QR transaction data to the main Transaction collection
+const syncQrTransactionToMain = async (qrTransaction, webhookData) => {
+  let mainTransaction;
 
+  // Try to find in main Transaction collection first
+  if (webhookData.transactionId) {
+    mainTransaction = await Transaction.findOne({ transactionId: webhookData.transactionId });
+  }
+  if (!mainTransaction && webhookData.merchantOrderId) {
+    mainTransaction = await Transaction.findOne({ merchantOrderId: webhookData.merchantOrderId });
+  }
+  if (!mainTransaction && webhookData.txnRefId) {
+    mainTransaction = await Transaction.findOne({ txnRefId: webhookData.txnRefId });
+  }
+
+  // If a main transaction is found, update it
+  if (mainTransaction) {
+    console.log(`Updating existing main transaction: ${mainTransaction.transactionId}`);
+    mainTransaction.status = webhookData.status || mainTransaction.status;
+    mainTransaction.amount = parseFloat(webhookData.amount) || mainTransaction.amount;
+    mainTransaction.upiId = webhookData.upiId || mainTransaction.upiId;
+    mainTransaction["Customer Name"] = webhookData.customerName || mainTransaction["Customer Name"];
+    mainTransaction["Customer VPA"] = webhookData.customerVpa || mainTransaction["Customer VPA"];
+    mainTransaction["Customer Contact No"] = webhookData.customerContact || mainTransaction["Customer Contact No"];
+    mainTransaction["Settlement Status"] = webhookData.settlementStatus || mainTransaction["Settlement Status"];
+    mainTransaction.enpayTxnId = webhookData.enpayTxnId || mainTransaction.enpayTxnId;
+    mainTransaction["Failure Reasons"] = webhookData.failureReason || mainTransaction["Failure Reasons"];
+    mainTransaction["Vendor Txn ID"] = webhookData.vendorTxnId || mainTransaction["Vendor Txn ID"];
+    await mainTransaction.save();
+    console.log(`✅ Main transaction ${mainTransaction.transactionId} updated to: ${mainTransaction.status}`);
+    return mainTransaction;
+  } else {
+    // If no main transaction found, create a new one
+    console.log("Creating new main transaction from webhook/QR data.");
+
+    const source = qrTransaction || webhookData; // Prioritize QR transaction if available
+
+    const newTransactionData = {
+      _id: new mongoose.Types.ObjectId(), // Generate new ObjectId for main transaction
+      transactionId: source.transactionId || generateTransactionId(),
+      merchantId: new mongoose.Types.ObjectId(source.merchantId || "60a7e6b0c2e3a4001c8c4f9f"), // Default or determine merchantId
+      merchantName: source.merchantName || "SKYPAL SYSTEM PRIVATE LIMITED",
+      amount: parseFloat(source.amount) || 0,
+      status: source.status || "SUCCESS",
+      qrCode: source.qrCode || null,
+      paymentUrl: source.paymentUrl || null,
+      txnNote: source.txnNote || "Payment for Order",
+      txnRefId: source.txnRefId || generateTxnRefId(),
+      upiId: source.upiId || "enpay1.skypal@fino",
+      merchantVpa: source.merchantVpa || "enpay1.skypal@fino",
+      merchantOrderId: source.merchantOrderId || `ORDER${Date.now()}`,
+      "Commission Amount": source["Commission Amount"] || 0,
+      createdAt: source.createdAt || new Date(),
+      mid: source.mid || generateMid(),
+      "Settlement Status": source.settlementStatus || "Unsettled",
+      "Vendor Ref ID": source["Vendor Ref ID"] || generateVendorRefId(),
+      "Customer Name": source.customerName || source["Customer Name"] || null,
+      "Customer VPA": source.customerVpa || source["Customer VPA"] || null,
+      "Customer Contact No": source.customerContact || source["Customer Contact No"] || null,
+      "Failure Reasons": source.failureReason || source["Failure Reasons"] || null,
+      "Vendor Txn ID": source.vendorTxnId || source["Vendor Txn ID"] || null,
+      enpayTxnId: source.enpayTxnId || null // If webhook provides Enpay Txn ID
+    };
+
+    const newMainTransaction = new Transaction(newTransactionData);
+    await newMainTransaction.save();
+    console.log(`✅ Created new main transaction: ${newMainTransaction.transactionId}`);
+    return newMainTransaction;
+  }
+};
 
 
 // In transactionController.js - FIX THE WEBHOOK FUNCTION
