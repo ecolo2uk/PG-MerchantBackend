@@ -10,7 +10,8 @@ import {
   initiateRefund,
   simulatePaymentWebhook,
   syncAllQRToMain,
-  debugSchema
+  debugSchema,
+  debugSchemaDetails
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -25,8 +26,8 @@ router.get("/details/:transactionId", authenticateMerchant, getTransactionDetail
 router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
 router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
 router.post("/sync-all", authenticateMerchant, syncAllQRToMain);
-router.get("/debug-schema", authenticateMerchant, debugSchema); // 👈 Add this
-
+router.get("/debug-schema", authenticateMerchant, debugSchemaDetails);
+router.get("/debug-validation", authenticateMerchant, debugSchema);
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
 router.post("/simulate-webhook", authenticateMerchant, simulatePaymentWebhook);

@@ -4,134 +4,26 @@ import mongoose from 'mongoose';
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-const generateMid = () => `MID${Date.now()}`;
-const generateVendorRefId = () => `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+const generateMid = () => `MID${Date.now()}${Math.floor(Math.random() * 1000)}`;
+const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// IMPROVED SYNC FUNCTION - ALWAYS SYNC TO MAIN TRANSACTION
-const syncQrTransactionToMain = async (qrTransaction, webhookData = {}) => {
-  try {
-    console.log("🔄 Syncing to main Transaction collection...");
-    
-    const source = qrTransaction || webhookData;
-    const merchantId = source.merchantId;
-
-    if (!merchantId) {
-      console.error("❌ No merchantId found for transaction");
-      return null;
-    }
-
-    // Prepare transaction data for MAIN collection
-    const transactionData = {
-      transactionId: source.transactionId || generateTransactionId(),
-      merchantId: new mongoose.Types.ObjectId(merchantId),
-      merchantName: source.merchantName || "SKYPAL SYSTEM PRIVATE LIMITED",
-      amount: parseFloat(source.amount) || 0,
-      status: source.status || webhookData?.status || "INITIATED",
-      qrCode: source.qrCode || null,
-      paymentUrl: source.paymentUrl || null,
-      txnNote: source.txnNote || "Payment for Order",
-      txnRefId: source.txnRefId || generateTxnRefId(),
-      upiId: source.upiId || "enpay1.skypal@fino",
-      merchantVpa: source.merchantVpa || "enpay1.skypal@fino",
-      merchantOrderId: source.merchantOrderId || `ORDER${Date.now()}`,
-      "Commission Amount": source["Commission Amount"] || 0,
-      createdAt: source.createdAt || new Date(),
-      mid: source.mid || generateMid(),
-      "Settlement Status": source.settlementStatus || webhookData?.settlementStatus || "Unsettled",
-      "Vendor Ref ID": source["Vendor Ref ID"] || generateVendorRefId(),
-      "Customer Name": source.customerName || source["Customer Name"] || webhookData?.customerName || null,
-      "Customer VPA": source.customerVpa || source["Customer VPA"] || webhookData?.customerVpa || null,
-      "Customer Contact No": source.customerContact || source["Customer Contact No"] || webhookData?.customerContact || null,
-      "Failure Reasons": source.failureReason || source["Failure Reasons"] || webhookData?.failureReason || null,
-      "Vendor Txn ID": source.vendorTxnId || source["Vendor Txn ID"] || webhookData?.vendorTxnId || null,
-      enpayTxnId: source.enpayTxnId || webhookData?.enpayTxnId || null
-    };
-
-    // Check if already exists in main collection
-    let mainTransaction = await Transaction.findOne({ 
-      transactionId: transactionData.transactionId 
-    });
-
-    if (mainTransaction) {
-      // Update existing transaction
-      console.log(`🔄 Updating existing main transaction: ${mainTransaction.transactionId}`);
-      Object.keys(transactionData).forEach(key => {
-        if (transactionData[key] !== undefined && transactionData[key] !== null) {
-          mainTransaction[key] = transactionData[key];
-        }
-      });
-      await mainTransaction.save();
-      console.log(`✅ Main transaction updated: ${mainTransaction.transactionId}`);
-    } else {
-      // Create new transaction in MAIN collection
-      console.log("🆕 Creating new transaction in MAIN collection");
-      mainTransaction = new Transaction(transactionData);
-      
-      // Validate before saving
-      const validationError = mainTransaction.validateSync();
-      if (validationError) {
-        console.error("❌ Main Transaction Validation Error:", validationError.errors);
-        throw new Error(`Main transaction validation failed: ${JSON.stringify(validationError.errors)}`);
-      }
-      
-      await mainTransaction.save();
-      console.log(`✅ New main transaction created: ${mainTransaction.transactionId}`);
-    }
-
-    return mainTransaction;
-
-  } catch (error) {
-    console.error("❌ Sync to Main Error:", error);
-    throw error;
-  }
-};
-
-export const getTransactions = async (req, res) => {
-  try {
-    const merchantId = req.user.id;
-    console.log("🟡 Fetching transactions for merchant:", merchantId);
-
-    // Fetch from the main Transaction collection ONLY
-    const transactions = await Transaction.find({ 
-      merchantId: new mongoose.Types.ObjectId(merchantId) 
-    })
-    .sort({ createdAt: -1 })
-    .select('-__v');
-
-    console.log(`✅ Found ${transactions.length} transactions in MAIN collection`);
-
-    res.json(transactions);
-
-  } catch (error) {
-    console.error("❌ Error fetching transactions:", error);
-    res.status(500).json({
-      code: 500,
-      message: "Failed to fetch transactions",
-      error: error.message
-    });
-  }
-};
-
+// 🔥 FIXED: Proper field generation and validation
 export const generateDynamicQR = async (req, res) => {
   try {
     console.log("🟡 generateDynamicQR - Processing request...");
     console.log("Full req.body:", req.body);
     
-    // Handle amount parsing with multiple fallbacks
+    // Handle amount parsing
     let amountValue = req.body.amount;
     let parsedAmount;
 
-    // EMERGENCY FIX: Handle [object Object] case
+    // Handle [object Object] case
     if (amountValue && typeof amountValue === 'object') {
       console.log("🚨 EMERGENCY: Amount is object, attempting recovery...");
-      console.log("Object keys:", Object.keys(amountValue));
-      
-      // Try multiple extraction methods
       amountValue = amountValue.value || amountValue.amount || 
                    amountValue.data || Object.values(amountValue).find(val => 
                      typeof val === 'number' || (typeof val === 'string' && !isNaN(parseFloat(val)))
                    );
-      
       console.log("Recovered amount value:", amountValue);
     }
 
@@ -146,7 +38,6 @@ export const generateDynamicQR = async (req, res) => {
         message: "Amount is required"
       });
     } else {
-      // Final fallback
       try {
         const stringValue = String(amountValue).replace('[object Object]', '').trim();
         parsedAmount = parseFloat(stringValue);
@@ -181,7 +72,7 @@ export const generateDynamicQR = async (req, res) => {
 
     console.log("✅ Amount validation passed:", parsedAmount);
 
-    // Generate unique IDs
+    // Generate unique IDs with proper format
     const transactionId = generateTransactionId();
     const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -193,7 +84,7 @@ export const generateDynamicQR = async (req, res) => {
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Data for BOTH collections
+    // 🔥 CRITICAL FIX: Ensure all required fields are present
     const transactionData = {
       transactionId,
       merchantId: new mongoose.Types.ObjectId(merchantId),
@@ -207,46 +98,50 @@ export const generateDynamicQR = async (req, res) => {
       upiId,
       merchantVpa: upiId,
       merchantOrderId,
-      mid,
-      "Vendor Ref ID": vendorRefId,
+      mid, // ✅ Now properly generated
+      "Vendor Ref ID": vendorRefId, // ✅ Now properly generated
       "Commission Amount": 0,
       "Settlement Status": "Unsettled",
       createdAt: new Date()
     };
 
-    console.log("🟡 Transaction data for BOTH collections:", transactionData);
+    console.log("🟡 Saving to MAIN Transaction collection:", transactionData);
 
-    // 🔥 CRITICAL: Save to BOTH collections
+    // 🔥 VALIDATION: Create instance and validate
     let mainTransaction;
-    let qrTransaction;
-
     try {
-      // 1. First save to MAIN Transaction collection
-      console.log("💾 Saving to MAIN Transaction collection...");
       mainTransaction = new Transaction(transactionData);
+      
+      // Validate before saving
+      const validationError = mainTransaction.validateSync();
+      if (validationError) {
+        console.error("❌ Transaction Validation Error:", validationError.errors);
+        return res.status(400).json({
+          code: 400,
+          message: `Transaction validation failed: ${Object.keys(validationError.errors).join(', ')}`
+        });
+      }
+      
       await mainTransaction.save();
-      console.log("✅ Saved to MAIN Transaction collection:", mainTransaction.transactionId);
-
-      // 2. Then save to QR Transaction collection
-      console.log("💾 Saving to QR Transaction collection...");
-      qrTransaction = new QrTransaction(transactionData);
-      await qrTransaction.save();
-      console.log("✅ Saved to QR Transaction collection:", qrTransaction.transactionId);
+      console.log("✅ SUCCESS: Saved to MAIN Transaction collection:", mainTransaction.transactionId);
 
     } catch (saveError) {
-      console.error("❌ Error saving transactions:", saveError);
-      
-      // If one fails, try to save the other
-      if (!mainTransaction) {
-        console.log("🔄 Retrying MAIN transaction save...");
-        mainTransaction = new Transaction(transactionData);
-        await mainTransaction.save();
-      }
-      if (!qrTransaction) {
-        console.log("🔄 Retrying QR transaction save...");
-        qrTransaction = new QrTransaction(transactionData);
-        await qrTransaction.save();
-      }
+      console.error("❌ Error saving to MAIN Transaction:", saveError);
+      return res.status(500).json({
+        code: 500,
+        message: "Failed to save transaction to main collection",
+        error: saveError.message,
+        details: saveError.errors || 'No additional details'
+      });
+    }
+
+    // Optional: Also save to QR collection if needed for tracking
+    try {
+      const qrTransaction = new QrTransaction(transactionData);
+      await qrTransaction.save();
+      console.log("✅ Also saved to QR collection for reference:", qrTransaction.transactionId);
+    } catch (qrError) {
+      console.log("⚠️ QR collection save failed, but main transaction saved:", qrError.message);
     }
 
     // Response with data from MAIN collection
@@ -269,10 +164,7 @@ export const generateDynamicQR = async (req, res) => {
       qrCode: qrCodeUrl,
       upiUrl: paymentUrl,
       enpayInitiated: false,
-      savedTo: {
-        mainCollection: true,
-        qrCollection: true
-      }
+      savedTo: "transactions"
     });
 
   } catch (error) {
@@ -292,17 +184,19 @@ export const generateDefaultQR = async (req, res) => {
 
     console.log("🟡 Default QR Request from:", merchantName);
 
-    // Generate unique IDs
-    const transactionId = generateTransactionId();
-    const txnRefId = generateTxnRefId();
+    // Generate unique IDs with proper format
+    const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const mid = `MID${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
     // Create UPI URL without amount
     const upiId = "enpay1.skypal@fino";
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Data for BOTH collections
+    // 🔥 COMPLETE data with all required fields
     const transactionData = {
       transactionId: transactionId,
       merchantId: new mongoose.Types.ObjectId(merchantId),
@@ -316,41 +210,49 @@ export const generateDefaultQR = async (req, res) => {
       upiId: upiId,
       merchantVpa: upiId,
       merchantOrderId: merchantOrderId,
-      mid: generateMid(),
-      "Vendor Ref ID": generateVendorRefId(),
+      mid: mid,
+      "Vendor Ref ID": vendorRefId,
       "Commission Amount": 0,
       "Settlement Status": "Unsettled",
       createdAt: new Date()
     };
 
-    console.log("🟡 Default QR data for BOTH collections:", transactionData);
+    console.log("🟡 Complete transaction data:", JSON.stringify(transactionData, null, 2));
 
-    // 🔥 CRITICAL: Save to BOTH collections
-    let mainTransaction;
-    let qrTransaction;
+    // 🔥 STEP-BY-STEP VALIDATION
+    console.log("🟡 Creating Transaction instance...");
+    const mainTransaction = new Transaction(transactionData);
 
-    try {
-      // 1. First save to MAIN Transaction collection
-      console.log("💾 Saving default QR to MAIN Transaction collection...");
-      mainTransaction = new Transaction(transactionData);
-      await mainTransaction.save();
-      console.log("✅ Saved to MAIN Transaction collection:", mainTransaction.transactionId);
-
-      // 2. Then save to QR Transaction collection
-      console.log("💾 Saving default QR to QR Transaction collection...");
-      qrTransaction = new QrTransaction(transactionData);
-      await qrTransaction.save();
-      console.log("✅ Saved to QR Transaction collection:", qrTransaction.transactionId);
-
-    } catch (saveError) {
-      console.error("❌ Error saving default QR:", saveError);
+    console.log("🟡 Validating schema...");
+    const validationError = mainTransaction.validateSync();
+    if (validationError) {
+      console.error("❌ DETAILED Validation Errors:");
+      Object.keys(validationError.errors).forEach(field => {
+        console.error(`  - ${field}: ${validationError.errors[field].message}`);
+      });
       
-      // If one fails, try to save the other
-      if (!mainTransaction) {
-        console.log("🔄 Retrying MAIN transaction save...");
-        mainTransaction = new Transaction(transactionData);
-        await mainTransaction.save();
-      }
+      return res.status(400).json({
+        code: 400,
+        message: "Transaction validation failed",
+        detailedErrors: Object.keys(validationError.errors).map(field => ({
+          field: field,
+          message: validationError.errors[field].message
+        })),
+        providedData: transactionData
+      });
+    }
+
+    console.log("🟡 Validation passed. Saving to database...");
+    await mainTransaction.save();
+    console.log("✅ SUCCESS: Default QR saved to MAIN Transaction collection:", mainTransaction.transactionId);
+
+    // Optional: Also save to QR collection
+    try {
+      const qrTransaction = new QrTransaction(transactionData);
+      await qrTransaction.save();
+      console.log("✅ Also saved to QR collection for reference:", qrTransaction.transactionId);
+    } catch (qrError) {
+      console.log("⚠️ QR collection save failed, but main transaction saved:", qrError.message);
     }
 
     res.json({
@@ -371,22 +273,153 @@ export const generateDefaultQR = async (req, res) => {
       },
       qrCode: qrCodeUrl,
       upiUrl: paymentUrl,
-      enpayInitiated: false,
-      savedTo: {
-        mainCollection: true,
-        qrCollection: !!qrTransaction
-      }
+      savedTo: "transactions"
     });
 
   } catch (error) {
     console.error("❌ Default QR Error:", error);
+    
+    // More detailed error information
+    let errorDetails = {
+      message: error.message,
+      name: error.name
+    };
+    
+    if (error.name === 'ValidationError') {
+      errorDetails.validationErrors = Object.keys(error.errors).map(field => ({
+        field: field,
+        message: error.errors[field].message
+      }));
+    }
+    
+    if (error.code) {
+      errorDetails.mongoErrorCode = error.code;
+    }
+
     res.status(500).json({
       code: 500,
       message: "Default QR generation failed",
+      error: errorDetails
+    });
+  }
+};
+
+// Add this debug endpoint to check schema validation
+export const debugSchema = async (req, res) => {
+  try {
+    const sampleData = {
+      transactionId: generateTransactionId(),
+      merchantId: new mongoose.Types.ObjectId(req.user.id),
+      merchantName: "Test Merchant",
+      amount: 100,
+      status: "INITIATED",
+      mid: generateMid(),
+      "Vendor Ref ID": generateVendorRefId(),
+      "Commission Amount": 0,
+      "Settlement Status": "Unsettled",
+      createdAt: new Date()
+    };
+
+    console.log("🧪 Testing schema with:", sampleData);
+
+    const testTransaction = new Transaction(sampleData);
+    const validationError = testTransaction.validateSync();
+    
+    if (validationError) {
+      return res.json({
+        code: 400,
+        message: "Schema validation failed",
+        errors: validationError.errors
+      });
+    }
+
+    res.json({
+      code: 200,
+      message: "Schema validation passed",
+      sampleData: sampleData
+    });
+
+  } catch (error) {
+    console.error("❌ Debug error:", error);
+    res.status(500).json({
+      code: 500,
       error: error.message
     });
   }
 };
+
+// Keep all other functions the same...
+export const getTransactions = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    console.log("🟡 Fetching transactions from MAIN collection for merchant:", merchantId);
+
+    const transactions = await Transaction.find({ 
+      merchantId: new mongoose.Types.ObjectId(merchantId) 
+    })
+    .sort({ createdAt: -1 })
+    .select('-__v');
+
+    console.log(`✅ Found ${transactions.length} transactions in MAIN collection`);
+
+    res.json(transactions);
+
+  } catch (error) {
+    console.error("❌ Error fetching transactions:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Failed to fetch transactions",
+      error: error.message
+    });
+  }
+};
+
+// Add this to your transactionController.js
+export const debugSchemaDetails = async (req, res) => {
+  try {
+    const Transaction = require("../models/Transaction.js");
+    
+    // Get the schema paths
+    const schemaPaths = Transaction.schema.paths;
+    const requiredFields = [];
+    const optionalFields = [];
+    
+    Object.keys(schemaPaths).forEach(path => {
+      const schemaType = schemaPaths[path];
+      if (schemaType.isRequired) {
+        requiredFields.push({
+          path: path,
+          type: schemaType.instance,
+          isRequired: schemaType.isRequired
+        });
+      } else {
+        optionalFields.push({
+          path: path,
+          type: schemaType.instance
+        });
+      }
+    });
+    
+    res.json({
+      code: 200,
+      schemaInfo: {
+        collectionName: Transaction.collection.name,
+        requiredFields: requiredFields,
+        optionalFields: optionalFields,
+        totalPaths: Object.keys(schemaPaths).length
+      }
+    });
+    
+  } catch (error) {
+    console.error("❌ Schema debug error:", error);
+    res.status(500).json({
+      code: 500,
+      error: error.message
+    });
+  }
+};
+
+// ... keep all other existing functions (handlePaymentWebhook, checkTransactionStatus, etc.)
 
 export const handlePaymentWebhook = async (req, res) => {
   try {
@@ -406,12 +439,11 @@ export const handlePaymentWebhook = async (req, res) => {
       vendorTxnId
     } = req.body;
 
-    console.log("🟡 Webhook Received:", req.body);
+    console.log("🟡 Webhook Received - Updating MAIN collection:", req.body);
 
-    let qrTransaction;
     let mainTransaction;
 
-    // First, try to find in MAIN Transaction collection
+    // Find in MAIN Transaction collection
     if (transactionId) {
       mainTransaction = await Transaction.findOne({ transactionId });
     }
@@ -420,11 +452,6 @@ export const handlePaymentWebhook = async (req, res) => {
     }
     if (!mainTransaction && txnRefId) {
       mainTransaction = await Transaction.findOne({ txnRefId });
-    }
-
-    // Also try to find in QR collection for reference
-    if (transactionId) {
-      qrTransaction = await QrTransaction.findOne({ transactionId });
     }
 
     if (mainTransaction) {
@@ -447,15 +474,6 @@ export const handlePaymentWebhook = async (req, res) => {
       await mainTransaction.save();
       console.log(`✅ MAIN Transaction ${mainTransaction.transactionId} updated from ${oldStatus} to: ${mainTransaction.status}`);
 
-      // Also update QR transaction if exists
-      if (qrTransaction) {
-        if (status) qrTransaction.status = status;
-        if (upiId) qrTransaction.upiId = upiId;
-        if (amount) qrTransaction.amount = parseFloat(amount);
-        await qrTransaction.save();
-        console.log(`✅ QR Transaction also updated: ${qrTransaction.transactionId}`);
-      }
-
       res.json({
         code: 200,
         message: "Webhook processed successfully",
@@ -463,7 +481,7 @@ export const handlePaymentWebhook = async (req, res) => {
         oldStatus: oldStatus,
         newStatus: mainTransaction.status,
         amount: mainTransaction.amount,
-        updatedIn: "main"
+        updatedIn: "transactions" // 🔥 Confirm update in main collection
       });
 
     } else {
@@ -501,7 +519,7 @@ export const handlePaymentWebhook = async (req, res) => {
         message: "Webhook processed successfully, new transaction created in MAIN collection",
         transactionId: mainTransaction.transactionId,
         status: mainTransaction.status,
-        createdIn: "main"
+        createdIn: "transactions" // 🔥 Confirm creation in main collection
       });
     }
 
@@ -515,7 +533,7 @@ export const handlePaymentWebhook = async (req, res) => {
   }
 };
 
-// Other functions remain the same but only work with MAIN collection
+// Other functions that work with MAIN collection only
 export const checkTransactionStatus = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -546,7 +564,7 @@ export const checkTransactionStatus = async (req, res) => {
         createdAt: transaction.createdAt,
         settlementStatus: transaction["Settlement Status"]
       },
-      collection: "main"
+      collection: "transactions" // 🔥 Confirm from main collection
     });
 
   } catch (error) {
@@ -581,7 +599,7 @@ export const getTransactionDetails = async (req, res) => {
     res.json({
       code: 200,
       transaction,
-      collection: "main"
+      collection: "transactions" // 🔥 Confirm from main collection
     });
   } catch (error) {
     console.error("❌ Get Details Error:", error);
@@ -591,6 +609,222 @@ export const getTransactionDetails = async (req, res) => {
     });
   }
 };
+
+// Test endpoint to verify main collection is working
+export const testMainCollection = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    // Count documents in both collections
+    const mainCount = await Transaction.countDocuments({ merchantId });
+    const qrCount = await QrTransaction.countDocuments({ merchantId });
+    
+    // Get recent transactions from both
+    const mainTransactions = await Transaction.find({ merchantId }).limit(3).sort({ createdAt: -1 });
+    const qrTransactions = await QrTransaction.find({ merchantId }).limit(3).sort({ createdAt: -1 });
+
+    res.json({
+      code: 200,
+      message: "Collection status check",
+      counts: {
+        transactions: mainCount,
+        qr_transactions: qrCount
+      },
+      recent: {
+        transactions: mainTransactions.map(t => ({
+          transactionId: t.transactionId,
+          amount: t.amount,
+          status: t.status,
+          createdAt: t.createdAt
+        })),
+        qr_transactions: qrTransactions.map(t => ({
+          transactionId: t.transactionId,
+          amount: t.amount,
+          status: t.status,
+          createdAt: t.createdAt
+        }))
+      }
+    });
+    
+  } catch (error) {
+    console.error("❌ Test error:", error);
+    res.status(500).json({
+      code: 500,
+      error: error.message
+    });
+  }
+};
+
+// Manual sync from QR to Main (if needed)
+export const syncQRToMain = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    console.log("🔄 Manual sync: QR to Main for merchant:", merchantId);
+    
+    const qrTransactions = await QrTransaction.find({ merchantId });
+    let syncedCount = 0;
+    
+    for (const qrTxn of qrTransactions) {
+      try {
+        const existing = await Transaction.findOne({ transactionId: qrTxn.transactionId });
+        
+        if (!existing) {
+          const mainTxn = new Transaction({
+            transactionId: qrTxn.transactionId,
+            merchantId: qrTxn.merchantId,
+            merchantName: qrTxn.merchantName,
+            amount: qrTxn.amount,
+            status: qrTxn.status,
+            qrCode: qrTxn.qrCode,
+            paymentUrl: qrTxn.paymentUrl,
+            txnNote: qrTxn.txnNote,
+            txnRefId: qrTxn.txnRefId,
+            upiId: qrTxn.upiId,
+            merchantVpa: qrTxn.merchantVpa,
+            merchantOrderId: qrTxn.merchantOrderId,
+            mid: qrTxn.mid,
+            "Vendor Ref ID": qrTxn["Vendor Ref ID"],
+            "Commission Amount": qrTxn["Commission Amount"],
+            "Settlement Status": qrTxn["Settlement Status"],
+            createdAt: qrTxn.createdAt
+          });
+          
+          await mainTxn.save();
+          syncedCount++;
+          console.log(`✅ Synced: ${qrTxn.transactionId}`);
+        }
+      } catch (error) {
+        console.error(`❌ Failed to sync: ${qrTxn.transactionId}`, error);
+      }
+    }
+    
+    res.json({
+      code: 200,
+      message: "Manual sync completed",
+      synced: syncedCount,
+      total: qrTransactions.length
+    });
+    
+  } catch (error) {
+    console.error("❌ Manual sync error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Manual sync failed",
+      error: error.message
+    });
+  }
+};
+
+// Keep other functions as needed...
+export const downloadReceipt = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const merchantId = req.user.id;
+
+    const transaction = await Transaction.findOne({ 
+      transactionId, 
+      merchantId: new mongoose.Types.ObjectId(merchantId)
+    });
+
+    if (!transaction) {
+      return res.status(404).json({ 
+        code: 404,
+        message: "Transaction not found in MAIN collection" 
+      });
+    }
+
+    if (transaction.status !== "SUCCESS") {
+      return res.status(400).json({ 
+        code: 400,
+        message: "Receipt only available for successful transactions" 
+      });
+    }
+
+    const receiptData = {
+      transactionId: transaction.transactionId,
+      merchantOrderId: transaction.merchantOrderId,
+      amount: transaction.amount,
+      date: transaction.createdAt,
+      merchantName: transaction.merchantName,
+      status: transaction.status,
+      upiId: transaction.upiId,
+      customerName: transaction["Customer Name"] || 'N/A',
+      customerVpa: transaction["Customer VPA"] || 'N/A',
+      commissionAmount: transaction["Commission Amount"],
+      settlementStatus: transaction["Settlement Status"]
+    };
+
+    res.json({
+      code: 200,
+      message: "Receipt generated successfully",
+      receipt: receiptData
+    });
+
+  } catch (error) {
+    console.error("❌ Download Receipt Error:", error);
+    res.status(500).json({ 
+      code: 500,
+      message: "Failed to download receipt",
+      error: error.message 
+    });
+  }
+};
+
+// export const initiateRefund = async (req, res) => {
+//   try {
+//     const { transactionId } = req.params;
+//     const { refundAmount, reason } = req.body;
+//     const merchantId = req.user.id;
+
+//     const transaction = await Transaction.findOne({ 
+//       transactionId, 
+//       merchantId: new mongoose.Types.ObjectId(merchantId)
+//     });
+
+//     if (!transaction) {
+//       return res.status(404).json({ 
+//         code: 404,
+//         message: "Transaction not found in MAIN collection" 
+//       });
+//     }
+
+//     if (transaction.status !== "SUCCESS") {
+//       return res.status(400).json({ 
+//         code: 400,
+//         message: "Refund only available for successful transactions" 
+//       });
+//     }
+
+//     if (refundAmount > transaction.amount) {
+//       return res.status(400).json({ 
+//         code: 400,
+//         message: "Refund amount cannot exceed original transaction amount" 
+//       });
+//     }
+
+//     transaction.status = "REFUNDED";
+//     await transaction.save();
+
+//     res.json({
+//       code: 200,
+//       message: "Refund initiated successfully",
+//       refundId: `REF${Date.now()}`,
+//       transactionId: transactionId,
+//       refundAmount: refundAmount,
+//       originalAmount: transaction.amount,
+//       status: "REFUNDED"
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Refund Error:", error);
+//     res.status(500).json({ 
+//       code: 500,
+//       message: "Failed to initiate refund",
+//       error: error.message 
+//     });
+//   }
+// };
 
 // Manual sync endpoint for existing QR transactions to MAIN
 export const syncAllQRToMain = async (req, res) => {
@@ -694,109 +928,109 @@ export const checkSyncStatus = async (req, res) => {
 };
 
 // Test endpoint to verify data is going to MAIN collection
-export const testMainCollection = async (req, res) => {
-  try {
-    const merchantId = req.user.id;
+// export const testMainCollection = async (req, res) => {
+//   try {
+//     const merchantId = req.user.id;
     
-    const testTransaction = {
-      transactionId: `TEST${Date.now()}`,
-      merchantId: new mongoose.Types.ObjectId(merchantId),
-      merchantName: "Test Merchant",
-      amount: 100,
-      status: "INITIATED",
-      mid: "TESTMID",
-      "Vendor Ref ID": "TESTVENDOR",
-      "Commission Amount": 0,
-      "Settlement Status": "Unsettled"
-    };
+//     const testTransaction = {
+//       transactionId: `TEST${Date.now()}`,
+//       merchantId: new mongoose.Types.ObjectId(merchantId),
+//       merchantName: "Test Merchant",
+//       amount: 100,
+//       status: "INITIATED",
+//       mid: "TESTMID",
+//       "Vendor Ref ID": "TESTVENDOR",
+//       "Commission Amount": 0,
+//       "Settlement Status": "Unsettled"
+//     };
 
-    console.log("🧪 Testing MAIN collection save...");
+//     console.log("🧪 Testing MAIN collection save...");
     
-    const mainTxn = new Transaction(testTransaction);
-    await mainTxn.save();
+//     const mainTxn = new Transaction(testTransaction);
+//     await mainTxn.save();
     
-    // Verify it's saved
-    const verified = await Transaction.findOne({ transactionId: testTransaction.transactionId });
+//     // Verify it's saved
+//     const verified = await Transaction.findOne({ transactionId: testTransaction.transactionId });
     
-    res.json({
-      code: 200,
-      message: "Test completed",
-      testData: testTransaction,
-      saved: !!verified,
-      verified: verified ? {
-        transactionId: verified.transactionId,
-        collection: "transactions"
-      } : null
-    });
+//     res.json({
+//       code: 200,
+//       message: "Test completed",
+//       testData: testTransaction,
+//       saved: !!verified,
+//       verified: verified ? {
+//         transactionId: verified.transactionId,
+//         collection: "transactions"
+//       } : null
+//     });
     
-  } catch (error) {
-    console.error("❌ Test error:", error);
-    res.status(500).json({
-      code: 500,
-      error: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     console.error("❌ Test error:", error);
+//     res.status(500).json({
+//       code: 500,
+//       error: error.message
+//     });
+//   }
+// };
 
 // Keep other existing functions (downloadReceipt, initiateRefund, etc.) as they are
 // but ensure they only work with Transaction model (MAIN collection)
 
-export const downloadReceipt = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const merchantId = req.user.id;
+// export const downloadReceipt = async (req, res) => {
+//   try {
+//     const { transactionId } = req.params;
+//     const merchantId = req.user.id;
 
-    console.log("🟡 Download receipt from MAIN collection:", { transactionId, merchantId });
+//     console.log("🟡 Download receipt from MAIN collection:", { transactionId, merchantId });
 
-    const transaction = await Transaction.findOne({ 
-      transactionId, 
-      merchantId: new mongoose.Types.ObjectId(merchantId)
-    });
+//     const transaction = await Transaction.findOne({ 
+//       transactionId, 
+//       merchantId: new mongoose.Types.ObjectId(merchantId)
+//     });
 
-    if (!transaction) {
-      return res.status(404).json({ 
-        code: 404,
-        message: "Transaction not found in MAIN collection" 
-      });
-    }
+//     if (!transaction) {
+//       return res.status(404).json({ 
+//         code: 404,
+//         message: "Transaction not found in MAIN collection" 
+//       });
+//     }
 
-    if (transaction.status !== "SUCCESS") {
-      return res.status(400).json({ 
-        code: 400,
-        message: "Receipt only available for successful transactions" 
-      });
-    }
+//     if (transaction.status !== "SUCCESS") {
+//       return res.status(400).json({ 
+//         code: 400,
+//         message: "Receipt only available for successful transactions" 
+//       });
+//     }
 
-    const receiptData = {
-      transactionId: transaction.transactionId,
-      merchantOrderId: transaction.merchantOrderId,
-      amount: transaction.amount,
-      date: transaction.createdAt,
-      merchantName: transaction.merchantName,
-      status: transaction.status,
-      upiId: transaction.upiId,
-      customerName: transaction["Customer Name"] || 'N/A',
-      customerVpa: transaction["Customer VPA"] || 'N/A',
-      commissionAmount: transaction["Commission Amount"],
-      settlementStatus: transaction["Settlement Status"],
-      collection: "main"
-    };
+//     const receiptData = {
+//       transactionId: transaction.transactionId,
+//       merchantOrderId: transaction.merchantOrderId,
+//       amount: transaction.amount,
+//       date: transaction.createdAt,
+//       merchantName: transaction.merchantName,
+//       status: transaction.status,
+//       upiId: transaction.upiId,
+//       customerName: transaction["Customer Name"] || 'N/A',
+//       customerVpa: transaction["Customer VPA"] || 'N/A',
+//       commissionAmount: transaction["Commission Amount"],
+//       settlementStatus: transaction["Settlement Status"],
+//       collection: "main"
+//     };
 
-    res.json({
-      code: 200,
-      message: "Receipt generated successfully",
-      receipt: receiptData
-    });
+//     res.json({
+//       code: 200,
+//       message: "Receipt generated successfully",
+//       receipt: receiptData
+//     });
 
-  } catch (error) {
-    console.error("❌ Download Receipt Error:", error);
-    res.status(500).json({ 
-      code: 500,
-      message: "Failed to download receipt",
-      error: error.message 
-    });
-  }
-};
+//   } catch (error) {
+//     console.error("❌ Download Receipt Error:", error);
+//     res.status(500).json({ 
+//       code: 500,
+//       message: "Failed to download receipt",
+//       error: error.message 
+//     });
+//   }
+// };
 
 export const initiateRefund = async (req, res) => {
   try {
