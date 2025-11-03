@@ -8,7 +8,8 @@ import {
   getTransactionDetails,
   testConnection,
  debugSchema,
- fixSchema
+ fixSchema,
+  testEnpayConnection
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 import { validateTransactionData } from "../middleware/validationMiddleware.js";
@@ -26,7 +27,7 @@ router.get("/debug-simple", authenticateMerchant, debugSchema);
 router.post("/fix-schema", authenticateMerchant, fixSchema);
 router.get("/test-connection", authenticateMerchant, testConnection);
 // Debug routes
-
+router.post("/test-enpay", authenticateMerchant, testEnpayConnection);
 router.post("/webhook", handlePaymentWebhook);
 
 export default router;

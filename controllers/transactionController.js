@@ -1,7 +1,6 @@
-import Transaction from '../models/Transaction.js'; // ✅ एकच model
+import Transaction from '../models/Transaction.js';
 import mongoose from 'mongoose';
-import { generateEnpayDynamicQR } from '../services/enpayService.js';
-import { generateEnpayDefaultQR } from '../services/enpayService.js';
+import { generateEnpayDynamicQR, generateEnpayDefaultQR } from '../services/enpayService.js';
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
@@ -21,24 +20,24 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    // IMPORTANT: Verify this with Enpay documentation!
+    // ✅ ENFORCE ENPAY MINIMUM AMOUNT
     const MINIMUM_ENPAY_AMOUNT = 100;
     if (parsedAmount < MINIMUM_ENPAY_AMOUNT) {
-        return res.status(400).json({
-            code: 400,
-            message: `Transaction amount must be at least ${MINIMUM_ENPAY_AMOUNT} INR`
-        });
+      return res.status(400).json({
+        code: 400,
+        message: `Transaction amount must be at least ${MINIMUM_ENPAY_AMOUNT} INR`
+      });
     }
 
-    const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    const transactionId = generateTransactionId();
+    const vendorRefId = generateVendorRefId();
 
     const transactionData = {
       transactionId,
       merchantId: merchantId,
       merchantName,
       amount: parsedAmount,
-      status: 'GENERATED',
+      status: 'INITIATED',
       createdAt: new Date().toISOString(),
       "Commission Amount": 0,
       mid: req.user.mid || 'DEFAULT_MID',
@@ -52,11 +51,13 @@ export const generateDynamicQR = async (req, res) => {
       merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF'
     };
 
-    console.log('🟡 Calling Enpay API...');
+    console.log('🟡 Calling Enpay API with amount:', parsedAmount);
 
+    // Call Enpay API
     const enpayResult = await generateEnpayDynamicQR(transactionData);
 
     if (!enpayResult.success) {
+      // Save failed transaction attempt
       transactionData.status = 'FAILED';
       transactionData.enpayInitiationStatus = 'ATTEMPTED_FAILED';
       transactionData.enpayError = enpayResult.error;
@@ -72,12 +73,14 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
+    // Save successful transaction
     transactionData.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
     transactionData.enpayQRCode = enpayResult.enpayQRCode;
     transactionData.enpayTxnId = enpayResult.enpayTxnId;
     transactionData.status = 'INITIATED';
 
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${txnNote}&tr=${transactionId}`;
+    // Generate local QR as fallback
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
     transactionData.qrCode = qrCodeUrl;
@@ -100,7 +103,6 @@ export const generateDynamicQR = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Generate QR Error:', error);
-
     res.status(500).json({
       code: 500,
       message: 'Failed to generate QR',
@@ -125,21 +127,21 @@ export const generateDefaultQR = async (req, res) => {
     const merchantName = req.user.name || 'Default Merchant';
 
     const transactionId = `DFT${Date.now()}`;
-    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    const vendorRefId = generateVendorRefId();
 
-    // FIX 2: Set default amount to minimum allowed by Enpay
-    const DEFAULT_ENPAY_AMOUNT = 100; // Use the same minimum as dynamic QR
-    
+    // ✅ FIXED: Use minimum allowed amount for default QR
+    const DEFAULT_ENPAY_AMOUNT = 100;
+
     const transactionData = {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      amount: DEFAULT_ENPAY_AMOUNT, // Corrected default amount
+      amount: DEFAULT_ENPAY_AMOUNT,
       "Commission Amount": 0,
       createdAt: new Date().toISOString(),
       mid: req.user.mid || 'DEFAULT_MID',
       "Settlement Status": "NA",
-      status: 'GENERATED',
+      status: 'INITIATED',
       "Vendor Ref ID": vendorRefId,
       txnNote: 'Default QR Code',
       upiId: 'enpay1.skypal@fino',
@@ -149,7 +151,7 @@ export const generateDefaultQR = async (req, res) => {
       merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF'
     };
 
-    console.log('🔵 Calling Enpay API for Default QR...');
+    console.log('🔵 Calling Enpay API for Default QR with amount:', DEFAULT_ENPAY_AMOUNT);
 
     const enpayResult = await generateEnpayDefaultQR(transactionData);
 
@@ -169,13 +171,14 @@ export const generateDefaultQR = async (req, res) => {
       });
     }
 
+    // Save successful default QR transaction
     transactionData.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
     transactionData.enpayQRCode = enpayResult.enpayQRCode;
     transactionData.enpayTxnId = enpayResult.enpayTxnId;
     transactionData.status = 'INITIATED';
 
-    // Generate local QR as fallback - use the correct default amount here as well
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${DEFAULT_ENPAY_AMOUNT}&tn=Default%20QR`;
+    // Generate local QR
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${DEFAULT_ENPAY_AMOUNT}&tn=Default%20QR%20Code`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
     transactionData.qrCode = qrCodeUrl;
@@ -199,7 +202,6 @@ export const generateDefaultQR = async (req, res) => {
 
   } catch (error) {
     console.error('❌ generateDefaultQR Error:', error);
-
     res.status(500).json({
       code: 500,
       success: false,
@@ -209,17 +211,51 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
+// ✅ REMOVED: Duplicate generateEnpayDynamicQR function - it's already in enpayService.js
 
+export const testEnpayConnection = async (req, res) => {
+  try {
+    console.log('🧪 Testing Enpay connection...');
+    
+    const testPayload = {
+      merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF',
+      txnAmount: '100', // Minimum amount
+      txnNote: 'Test Connection',
+      txnRefId: `TEST${Date.now()}`
+    };
+
+    const response = await enpayApi.post('/dynamicQR', testPayload);
+    
+    console.log('🧪 Enpay Test Response:', response.data);
+
+    res.json({
+      success: true,
+      enpayStatus: response.data.code === 0 ? 'Working' : 'Error',
+      enpayResponse: response.data,
+      message: 'Enpay API test completed'
+    });
+
+  } catch (error) {
+    console.error('🧪 Enpay Test Failed:', error.response?.data || error.message);
+    
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message,
+      message: 'Enpay API test failed'
+    });
+  }
+};
+
+// ... rest of your controller functions remain the same
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
     console.log("🟡 Fetching transactions for merchant:", merchantId);
 
-    // FIXED: Handle both string and ObjectId merchantId
     const transactions = await Transaction.find({ 
       $or: [
-        { merchantId: merchantId }, // String match
-        { merchantId: new mongoose.Types.ObjectId(merchantId) } // ObjectId match
+        { merchantId: merchantId },
+        { merchantId: new mongoose.Types.ObjectId(merchantId) }
       ]
     })
     .sort({ createdAt: -1 })
@@ -239,6 +275,7 @@ export const getTransactions = async (req, res) => {
   }
 };
 
+// ... other functions (checkTransactionStatus, testConnection, handlePaymentWebhook, etc.)
 // Other functions remain the same...
 export const checkTransactionStatus = async (req, res) => {
   try {
