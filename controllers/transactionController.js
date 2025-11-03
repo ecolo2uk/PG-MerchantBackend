@@ -12,13 +12,20 @@ export const generateDynamicQR = async (req, res) => {
     const merchantId = req.user.id;
     const merchantName = req.user.name || 'Merchant';
 
-    if (!amount || isNaN(amount)) {
+   if (!amount || isNaN(amount) || parseFloat(amount) <= 0){
       return res.status(400).json({
         code: 400,
         message: 'Valid amount is required'
       });
     }
 
+      if (parseFloat(amount) < 1) { 
+        return res.status(400).json({
+            code: 400,
+            message: 'Transaction amount must be at least 1 INR'
+        });
+    }
+    
     // Generate unique IDs
     const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
