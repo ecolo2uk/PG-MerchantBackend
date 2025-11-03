@@ -1,3 +1,4 @@
+// controllers/transactionController.js
 import Transaction from "../models/Transaction.js";
 import QrTransaction from "../models/QrTransaction.js";
 import mongoose from 'mongoose';
@@ -7,72 +8,34 @@ const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).sub
 const generateMid = () => `MID${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// 🔥 FIXED: Proper field generation and validation
+// ✅ WORKING: Generate Dynamic QR
 export const generateDynamicQR = async (req, res) => {
   try {
     console.log("🟡 generateDynamicQR - Processing request...");
-    console.log("Full req.body:", req.body);
     
-    // Handle amount parsing
-    let amountValue = req.body.amount;
-    let parsedAmount;
-
-    // Handle [object Object] case
-    if (amountValue && typeof amountValue === 'object') {
-      console.log("🚨 EMERGENCY: Amount is object, attempting recovery...");
-      amountValue = amountValue.value || amountValue.amount || 
-                   amountValue.data || Object.values(amountValue).find(val => 
-                     typeof val === 'number' || (typeof val === 'string' && !isNaN(parseFloat(val)))
-                   );
-      console.log("Recovered amount value:", amountValue);
-    }
-
-    // Parse the amount
-    if (typeof amountValue === 'number') {
-      parsedAmount = amountValue;
-    } else if (typeof amountValue === 'string') {
-      parsedAmount = parseFloat(amountValue);
-    } else if (amountValue === undefined || amountValue === null) {
-      return res.status(400).json({
-        code: 400,
-        message: "Amount is required"
-      });
-    } else {
-      try {
-        const stringValue = String(amountValue).replace('[object Object]', '').trim();
-        parsedAmount = parseFloat(stringValue);
-      } catch (error) {
-        return res.status(400).json({
-          code: 400,
-          message: `Invalid amount format: ${amountValue}`
-        });
-      }
-    }
-
-    console.log("🟡 Final parsed amount:", parsedAmount);
-
-    // Validation
-    if (isNaN(parsedAmount)) {
-      return res.status(400).json({
-        code: 400,
-        message: `Amount must be a valid number. Received: ${amountValue}`
-      });
-    }
-
-    if (parsedAmount <= 0) {
-      return res.status(400).json({
-        code: 400,
-        message: "Amount must be greater than 0"
-      });
-    }
-
-    const { txnNote = "Payment for Order" } = req.body;
+    const { amount, txnNote = "Payment for Order" } = req.body;
     const merchantId = req.user.id;
     const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
 
+    // Validate amount
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        code: 400,
+        message: "Valid amount is required"
+      });
+    }
+
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount)) {
+      return res.status(400).json({
+        code: 400,
+        message: "Amount must be a valid number"
+      });
+    }
+
     console.log("✅ Amount validation passed:", parsedAmount);
 
-    // Generate unique IDs with proper format
+    // Generate unique IDs
     const transactionId = generateTransactionId();
     const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -84,67 +47,53 @@ export const generateDynamicQR = async (req, res) => {
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // 🔥 CRITICAL FIX: Ensure all required fields are present
+    // ⚠️ CRITICAL: Match MongoDB schema exactly - createdAt as String
     const transactionData = {
       transactionId,
       merchantId: new mongoose.Types.ObjectId(merchantId),
       merchantName,
       amount: parsedAmount,
       status: "INITIATED",
+      mid,
+      "Vendor Ref ID": vendorRefId,
+      "Commission Amount": 0,
+      "Settlement Status": "Unsettled",
+      createdAt: new Date().toISOString(), // ⚠️ Convert to ISO string
+      // Optional fields
       qrCode: qrCodeUrl,
       paymentUrl,
       txnNote,
       txnRefId,
       upiId,
       merchantVpa: upiId,
-      merchantOrderId,
-      mid, // ✅ Now properly generated
-      "Vendor Ref ID": vendorRefId, // ✅ Now properly generated
-      "Commission Amount": 0,
-      "Settlement Status": "Unsettled",
-      createdAt: new Date()
+      merchantOrderId
     };
 
-    console.log("🟡 Saving to MAIN Transaction collection:", transactionData);
+    console.log("🟡 Transaction data prepared:", transactionData);
 
-    // 🔥 VALIDATION: Create instance and validate
+    // Save to main collection using create() for better error handling
     let mainTransaction;
     try {
-      mainTransaction = new Transaction(transactionData);
-      
-      // Validate before saving
-      const validationError = mainTransaction.validateSync();
-      if (validationError) {
-        console.error("❌ Transaction Validation Error:", validationError.errors);
-        return res.status(400).json({
-          code: 400,
-          message: `Transaction validation failed: ${Object.keys(validationError.errors).join(', ')}`
-        });
-      }
-      
-      await mainTransaction.save();
+      mainTransaction = await Transaction.create(transactionData);
       console.log("✅ SUCCESS: Saved to MAIN Transaction collection:", mainTransaction.transactionId);
-
     } catch (saveError) {
       console.error("❌ Error saving to MAIN Transaction:", saveError);
       return res.status(500).json({
         code: 500,
-        message: "Failed to save transaction to main collection",
-        error: saveError.message,
-        details: saveError.errors || 'No additional details'
+        message: "Failed to save transaction",
+        error: saveError.message
       });
     }
 
-    // Optional: Also save to QR collection if needed for tracking
+    // Optional: Save to QR collection
     try {
-      const qrTransaction = new QrTransaction(transactionData);
-      await qrTransaction.save();
-      console.log("✅ Also saved to QR collection for reference:", qrTransaction.transactionId);
+      await QrTransaction.create(transactionData);
+      console.log("✅ Also saved to QR collection");
     } catch (qrError) {
-      console.log("⚠️ QR collection save failed, but main transaction saved:", qrError.message);
+      console.log("⚠️ QR collection save failed:", qrError.message);
     }
 
-    // Response with data from MAIN collection
+    // Success response
     res.json({
       code: 200,
       message: "QR generated successfully",
@@ -162,9 +111,7 @@ export const generateDynamicQR = async (req, res) => {
         merchantOrderId: mainTransaction.merchantOrderId
       },
       qrCode: qrCodeUrl,
-      upiUrl: paymentUrl,
-      enpayInitiated: false,
-      savedTo: "transactions"
+      upiUrl: paymentUrl
     });
 
   } catch (error) {
@@ -177,6 +124,7 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
+// ✅ WORKING: Generate Default QR
 export const generateDefaultQR = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -184,75 +132,62 @@ export const generateDefaultQR = async (req, res) => {
 
     console.log("🟡 Default QR Request from:", merchantName);
 
-    // Generate unique IDs with proper format
-    const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+    // Generate unique IDs
+    const transactionId = generateTransactionId();
+    const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const mid = `MID${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    const mid = generateMid();
+    const vendorRefId = generateVendorRefId();
 
     // Create UPI URL without amount
     const upiId = "enpay1.skypal@fino";
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // 🔥 COMPLETE data with all required fields
+    // ⚠️ CRITICAL: Match MongoDB schema exactly
     const transactionData = {
-      transactionId: transactionId,
+      transactionId,
       merchantId: new mongoose.Types.ObjectId(merchantId),
-      merchantName: merchantName,
+      merchantName,
       amount: 0,
       status: "INITIATED",
-      qrCode: qrCodeUrl,
-      paymentUrl: paymentUrl,
-      txnNote: "Default QR Payment",
-      txnRefId: txnRefId,
-      upiId: upiId,
-      merchantVpa: upiId,
-      merchantOrderId: merchantOrderId,
-      mid: mid,
+      mid,
       "Vendor Ref ID": vendorRefId,
       "Commission Amount": 0,
       "Settlement Status": "Unsettled",
-      createdAt: new Date()
+      createdAt: new Date().toISOString(), // ⚠️ Convert to ISO string
+      // Optional fields
+      qrCode: qrCodeUrl,
+      paymentUrl,
+      txnNote: "Default QR Payment",
+      txnRefId,
+      upiId,
+      merchantVpa: upiId,
+      merchantOrderId
     };
 
-    console.log("🟡 Complete transaction data:", JSON.stringify(transactionData, null, 2));
+    console.log("🟡 Default QR transaction data:", transactionData);
 
-    // 🔥 STEP-BY-STEP VALIDATION
-    console.log("🟡 Creating Transaction instance...");
-    const mainTransaction = new Transaction(transactionData);
-
-    console.log("🟡 Validating schema...");
-    const validationError = mainTransaction.validateSync();
-    if (validationError) {
-      console.error("❌ DETAILED Validation Errors:");
-      Object.keys(validationError.errors).forEach(field => {
-        console.error(`  - ${field}: ${validationError.errors[field].message}`);
-      });
-      
-      return res.status(400).json({
-        code: 400,
-        message: "Transaction validation failed",
-        detailedErrors: Object.keys(validationError.errors).map(field => ({
-          field: field,
-          message: validationError.errors[field].message
-        })),
-        providedData: transactionData
+    // Save to main collection
+    let mainTransaction;
+    try {
+      mainTransaction = await Transaction.create(transactionData);
+      console.log("✅ SUCCESS: Default QR saved to MAIN Transaction collection:", mainTransaction.transactionId);
+    } catch (saveError) {
+      console.error("❌ Error saving default QR:", saveError);
+      return res.status(500).json({
+        code: 500,
+        message: "Failed to save default QR",
+        error: saveError.message
       });
     }
 
-    console.log("🟡 Validation passed. Saving to database...");
-    await mainTransaction.save();
-    console.log("✅ SUCCESS: Default QR saved to MAIN Transaction collection:", mainTransaction.transactionId);
-
-    // Optional: Also save to QR collection
+    // Optional: Save to QR collection
     try {
-      const qrTransaction = new QrTransaction(transactionData);
-      await qrTransaction.save();
-      console.log("✅ Also saved to QR collection for reference:", qrTransaction.transactionId);
+      await QrTransaction.create(transactionData);
+      console.log("✅ Also saved to QR collection");
     } catch (qrError) {
-      console.log("⚠️ QR collection save failed, but main transaction saved:", qrError.message);
+      console.log("⚠️ QR collection save failed:", qrError.message);
     }
 
     res.json({
@@ -272,87 +207,24 @@ export const generateDefaultQR = async (req, res) => {
         merchantOrderId: mainTransaction.merchantOrderId
       },
       qrCode: qrCodeUrl,
-      upiUrl: paymentUrl,
-      savedTo: "transactions"
+      upiUrl: paymentUrl
     });
 
   } catch (error) {
     console.error("❌ Default QR Error:", error);
-    
-    // More detailed error information
-    let errorDetails = {
-      message: error.message,
-      name: error.name
-    };
-    
-    if (error.name === 'ValidationError') {
-      errorDetails.validationErrors = Object.keys(error.errors).map(field => ({
-        field: field,
-        message: error.errors[field].message
-      }));
-    }
-    
-    if (error.code) {
-      errorDetails.mongoErrorCode = error.code;
-    }
-
     res.status(500).json({
       code: 500,
       message: "Default QR generation failed",
-      error: errorDetails
-    });
-  }
-};
-
-// Add this debug endpoint to check schema validation
-export const debugSchema = async (req, res) => {
-  try {
-    const sampleData = {
-      transactionId: generateTransactionId(),
-      merchantId: new mongoose.Types.ObjectId(req.user.id),
-      merchantName: "Test Merchant",
-      amount: 100,
-      status: "INITIATED",
-      mid: generateMid(),
-      "Vendor Ref ID": generateVendorRefId(),
-      "Commission Amount": 0,
-      "Settlement Status": "Unsettled",
-      createdAt: new Date()
-    };
-
-    console.log("🧪 Testing schema with:", sampleData);
-
-    const testTransaction = new Transaction(sampleData);
-    const validationError = testTransaction.validateSync();
-    
-    if (validationError) {
-      return res.json({
-        code: 400,
-        message: "Schema validation failed",
-        errors: validationError.errors
-      });
-    }
-
-    res.json({
-      code: 200,
-      message: "Schema validation passed",
-      sampleData: sampleData
-    });
-
-  } catch (error) {
-    console.error("❌ Debug error:", error);
-    res.status(500).json({
-      code: 500,
       error: error.message
     });
   }
 };
 
-// Keep all other functions the same...
+// ✅ WORKING: Get Transactions
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
-    console.log("🟡 Fetching transactions from MAIN collection for merchant:", merchantId);
+    console.log("🟡 Fetching transactions for merchant:", merchantId);
 
     const transactions = await Transaction.find({ 
       merchantId: new mongoose.Types.ObjectId(merchantId) 
@@ -360,7 +232,7 @@ export const getTransactions = async (req, res) => {
     .sort({ createdAt: -1 })
     .select('-__v');
 
-    console.log(`✅ Found ${transactions.length} transactions in MAIN collection`);
+    console.log(`✅ Found ${transactions.length} transactions`);
 
     res.json(transactions);
 
@@ -374,44 +246,67 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// Add this to your transactionController.js
-export const debugSchemaDetails = async (req, res) => {
+// ✅ WORKING: Check Transaction Status
+export const checkTransactionStatus = async (req, res) => {
   try {
-    const Transaction = require("../models/Transaction.js");
-    
-    // Get the schema paths
-    const schemaPaths = Transaction.schema.paths;
-    const requiredFields = [];
-    const optionalFields = [];
-    
-    Object.keys(schemaPaths).forEach(path => {
-      const schemaType = schemaPaths[path];
-      if (schemaType.isRequired) {
-        requiredFields.push({
-          path: path,
-          type: schemaType.instance,
-          isRequired: schemaType.isRequired
-        });
-      } else {
-        optionalFields.push({
-          path: path,
-          type: schemaType.instance
-        });
+    const { transactionId } = req.params;
+    const merchantId = req.user.id;
+
+    console.log("🟡 Checking transaction status:", { transactionId, merchantId });
+
+    const transaction = await Transaction.findOne({
+      transactionId,
+      merchantId: new mongoose.Types.ObjectId(merchantId)
+    });
+
+    if (!transaction) {
+      return res.status(404).json({
+        code: 404,
+        message: "Transaction not found"
+      });
+    }
+
+    res.json({
+      code: 200,
+      transaction: {
+        transactionId: transaction.transactionId,
+        status: transaction.status,
+        amount: transaction.amount,
+        upiId: transaction.upiId,
+        txnRefId: transaction.txnRefId,
+        createdAt: transaction.createdAt,
+        settlementStatus: transaction["Settlement Status"]
       }
     });
+
+  } catch (error) {
+    console.error("❌ Check Status Error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Failed to check transaction status",
+      error: error.message
+    });
+  }
+};
+
+// ✅ Add this debug endpoint to test the connection
+export const testConnection = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    // Test database connection
+    const count = await Transaction.countDocuments({ merchantId });
     
     res.json({
       code: 200,
-      schemaInfo: {
-        collectionName: Transaction.collection.name,
-        requiredFields: requiredFields,
-        optionalFields: optionalFields,
-        totalPaths: Object.keys(schemaPaths).length
-      }
+      message: "Connection successful",
+      transactionCount: count,
+      merchantId: merchantId,
+      timestamp: new Date().toISOString()
     });
     
   } catch (error) {
-    console.error("❌ Schema debug error:", error);
+    console.error("❌ Connection test error:", error);
     res.status(500).json({
       code: 500,
       error: error.message
@@ -419,8 +314,7 @@ export const debugSchemaDetails = async (req, res) => {
   }
 };
 
-// ... keep all other existing functions (handlePaymentWebhook, checkTransactionStatus, etc.)
-
+// Keep other functions as needed...
 export const handlePaymentWebhook = async (req, res) => {
   try {
     const {
@@ -433,93 +327,42 @@ export const handlePaymentWebhook = async (req, res) => {
       customerVpa,
       customerContact,
       settlementStatus,
-      merchantOrderId,
-      enpayTxnId,
-      failureReason,
-      vendorTxnId
+      merchantOrderId
     } = req.body;
 
-    console.log("🟡 Webhook Received - Updating MAIN collection:", req.body);
+    console.log("🟡 Webhook Received:", req.body);
 
-    let mainTransaction;
+    let transaction = await Transaction.findOne({ 
+      $or: [
+        { transactionId },
+        { merchantOrderId },
+        { txnRefId }
+      ]
+    });
 
-    // Find in MAIN Transaction collection
-    if (transactionId) {
-      mainTransaction = await Transaction.findOne({ transactionId });
-    }
-    if (!mainTransaction && merchantOrderId) {
-      mainTransaction = await Transaction.findOne({ merchantOrderId });
-    }
-    if (!mainTransaction && txnRefId) {
-      mainTransaction = await Transaction.findOne({ txnRefId });
-    }
-
-    if (mainTransaction) {
-      console.log(`✅ Found in MAIN Transaction: ${mainTransaction.transactionId}, Current status: ${mainTransaction.status}`);
-
-      const oldStatus = mainTransaction.status;
-
-      // Update MAIN Transaction fields
-      if (status) mainTransaction.status = status;
-      if (upiId) mainTransaction.upiId = upiId;
-      if (amount) mainTransaction.amount = parseFloat(amount);
-      if (customerName) mainTransaction["Customer Name"] = customerName;
-      if (customerVpa) mainTransaction["Customer VPA"] = customerVpa;
-      if (customerContact) mainTransaction["Customer Contact No"] = customerContact;
-      if (settlementStatus) mainTransaction["Settlement Status"] = settlementStatus;
-      if (enpayTxnId) mainTransaction.enpayTxnId = enpayTxnId;
-      if (failureReason) mainTransaction["Failure Reasons"] = failureReason;
-      if (vendorTxnId) mainTransaction["Vendor Txn ID"] = vendorTxnId;
-
-      await mainTransaction.save();
-      console.log(`✅ MAIN Transaction ${mainTransaction.transactionId} updated from ${oldStatus} to: ${mainTransaction.status}`);
-
+    if (transaction) {
+      console.log(`✅ Found transaction: ${transaction.transactionId}`);
+      
+      // Update fields
+      if (status) transaction.status = status;
+      if (amount) transaction.amount = parseFloat(amount);
+      if (customerName) transaction["Customer Name"] = customerName;
+      if (customerVpa) transaction["Customer VPA"] = customerVpa;
+      if (customerContact) transaction["Customer Contact No"] = customerContact;
+      if (settlementStatus) transaction["Settlement Status"] = settlementStatus;
+      
+      await transaction.save();
+      
       res.json({
         code: 200,
         message: "Webhook processed successfully",
-        transactionId: mainTransaction.transactionId,
-        oldStatus: oldStatus,
-        newStatus: mainTransaction.status,
-        amount: mainTransaction.amount,
-        updatedIn: "transactions" // 🔥 Confirm update in main collection
+        transactionId: transaction.transactionId,
+        status: transaction.status
       });
-
     } else {
-      console.log("❌ Transaction not found in MAIN collection. Creating new...");
-
-      // Create new transaction in MAIN collection from webhook data
-      const newTransactionData = {
-        transactionId: transactionId || generateTransactionId(),
-        merchantId: new mongoose.Types.ObjectId("60a7e6b0c2e3a4001c8c4f9f"), // Default merchant ID
-        merchantName: "SKYPAL SYSTEM PRIVATE LIMITED",
-        amount: parseFloat(amount) || 0,
-        status: status || "SUCCESS",
-        upiId: upiId || "customer@upi",
-        txnRefId: txnRefId || generateTxnRefId(),
-        merchantOrderId: merchantOrderId || `ORDER${Date.now()}`,
-        "Commission Amount": 0,
-        mid: generateMid(),
-        "Settlement Status": settlementStatus || "Unsettled",
-        "Vendor Ref ID": generateVendorRefId(),
-        "Customer Name": customerName || null,
-        "Customer VPA": customerVpa || null,
-        "Customer Contact No": customerContact || null,
-        "Failure Reasons": failureReason || null,
-        "Vendor Txn ID": vendorTxnId || null,
-        enpayTxnId: enpayTxnId || null,
-        createdAt: new Date()
-      };
-
-      mainTransaction = new Transaction(newTransactionData);
-      await mainTransaction.save();
-      console.log(`✅ Created new MAIN transaction from webhook: ${mainTransaction.transactionId}`);
-
-      res.json({
-        code: 200,
-        message: "Webhook processed successfully, new transaction created in MAIN collection",
-        transactionId: mainTransaction.transactionId,
-        status: mainTransaction.status,
-        createdIn: "transactions" // 🔥 Confirm creation in main collection
+      res.status(404).json({
+        code: 404,
+        message: "Transaction not found"
       });
     }
 
@@ -534,48 +377,48 @@ export const handlePaymentWebhook = async (req, res) => {
 };
 
 // Other functions that work with MAIN collection only
-export const checkTransactionStatus = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const merchantId = req.user.id;
+// export const checkTransactionStatus = async (req, res) => {
+//   try {
+//     const { transactionId } = req.params;
+//     const merchantId = req.user.id;
 
-    console.log("🟡 Checking transaction status in MAIN collection:", { transactionId, merchantId });
+//     console.log("🟡 Checking transaction status in MAIN collection:", { transactionId, merchantId });
 
-    const transaction = await Transaction.findOne({
-      transactionId,
-      merchantId: new mongoose.Types.ObjectId(merchantId)
-    });
+//     const transaction = await Transaction.findOne({
+//       transactionId,
+//       merchantId: new mongoose.Types.ObjectId(merchantId)
+//     });
 
-    if (!transaction) {
-      return res.status(404).json({
-        code: 404,
-        message: "Transaction not found in MAIN collection"
-      });
-    }
+//     if (!transaction) {
+//       return res.status(404).json({
+//         code: 404,
+//         message: "Transaction not found in MAIN collection"
+//       });
+//     }
 
-    res.json({
-      code: 200,
-      transaction: {
-        transactionId: transaction.transactionId,
-        status: transaction.status,
-        amount: transaction.amount,
-        upiId: transaction.upiId,
-        txnRefId: transaction.txnRefId,
-        createdAt: transaction.createdAt,
-        settlementStatus: transaction["Settlement Status"]
-      },
-      collection: "transactions" // 🔥 Confirm from main collection
-    });
+//     res.json({
+//       code: 200,
+//       transaction: {
+//         transactionId: transaction.transactionId,
+//         status: transaction.status,
+//         amount: transaction.amount,
+//         upiId: transaction.upiId,
+//         txnRefId: transaction.txnRefId,
+//         createdAt: transaction.createdAt,
+//         settlementStatus: transaction["Settlement Status"]
+//       },
+//       collection: "transactions" // 🔥 Confirm from main collection
+//     });
 
-  } catch (error) {
-    console.error("❌ Check Status Error:", error);
-    res.status(500).json({
-      code: 500,
-      message: "Failed to check transaction status",
-      error: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     console.error("❌ Check Status Error:", error);
+//     res.status(500).json({
+//       code: 500,
+//       message: "Failed to check transaction status",
+//       error: error.message
+//     });
+//   }
+// };
 
 export const getTransactionDetails = async (req, res) => {
   try {

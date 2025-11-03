@@ -1,3 +1,4 @@
+// routes/transactionRoutes.js
 import express from "express";
 import {
   getTransactions,
@@ -6,12 +7,7 @@ import {
   checkTransactionStatus,
   handlePaymentWebhook,
   getTransactionDetails,
-  downloadReceipt,
-  initiateRefund,
-  simulatePaymentWebhook,
-  syncAllQRToMain,
-  debugSchema,
-  debugSchemaDetails
+  testConnection
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -23,13 +19,9 @@ router.post("/generate-qr", authenticateMerchant, generateDynamicQR);
 router.post("/default-qr", authenticateMerchant, generateDefaultQR);
 router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatus);
 router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
-router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
-router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
-router.post("/sync-all", authenticateMerchant, syncAllQRToMain);
-router.get("/debug-schema", authenticateMerchant, debugSchemaDetails);
-router.get("/debug-validation", authenticateMerchant, debugSchema);
+router.get("/test", authenticateMerchant, testConnection); // Add test endpoint
+
 // Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
-router.post("/simulate-webhook", authenticateMerchant, simulatePaymentWebhook);
 
 export default router;

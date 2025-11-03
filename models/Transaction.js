@@ -1,3 +1,4 @@
+// models/Transaction.js
 import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema({
@@ -15,9 +16,8 @@ const transactionSchema = new mongoose.Schema({
     default: 0
   },
   createdAt: {
-    type: Date,
-    required: true,
-    default: Date.now
+    type: String, // ⚠️ IMPORTANT: MongoDB schema expects string, not Date
+    required: true
   },
   merchantId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -29,7 +29,7 @@ const transactionSchema = new mongoose.Schema({
   },
   mid: {
     type: String,
-    required: true // FIXED: Add required
+    required: true
   },
   "Settlement Status": {
     type: String,
@@ -49,52 +49,70 @@ const transactionSchema = new mongoose.Schema({
   },
   "Vendor Ref ID": {
     type: String,
-    required: true // FIXED: Add required
+    required: true
   },
-  // Optional fields
+  // Optional fields - make them truly optional
   "Customer Contact No": {
-    type: mongoose.Schema.Types.Mixed
+    type: mongoose.Schema.Types.Mixed,
+    required: false // Explicitly set to false
   },
   "Customer Name": {
-    type: String
+    type: String,
+    required: false
   },
   "Customer VPA": {
-    type: String
+    type: String,
+    required: false
   },
   "Failure Reasons": {
-    type: String
+    type: String,
+    required: false
   },
   "Vendor Txn ID": {
-    type: String
+    type: String,
+    required: false
   },
-  // Additional fields
+  // Additional optional fields
   merchantOrderId: {
-    type: String
+    type: String,
+    required: false
   },
   txnNote: {
-    type: String
+    type: String,
+    required: false
   },
   txnRefId: {
-    type: String
+    type: String,
+    required: false
   },
   upiId: {
-    type: String
+    type: String,
+    required: false
   },
   merchantVpa: {
-    type: String
+    type: String,
+    required: false
   },
   qrCode: {
-    type: String
+    type: String,
+    required: false
   },
   paymentUrl: {
-    type: String
+    type: String,
+    required: false
   },
   enpayTxnId: {
-    type: String
+    type: String,
+    required: false
+  },
+  updatedAt: {
+    type: String,
+    required: false
   }
 }, {
   collection: 'transactions',
-  timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
+  // Remove timestamps since we're handling dates manually to match MongoDB schema
+  timestamps: false
 });
 
 export default mongoose.model('Transaction', transactionSchema);
