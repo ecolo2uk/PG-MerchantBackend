@@ -531,3 +531,36 @@ export const simulatePaymentWebhook = async (req, res) => {
     });
   }
 };
+
+// Add to your transactionController.js
+export const debugSchema = async (req, res) => {
+  try {
+    const sampleDoc = await Transaction.findOne();
+    const validationResult = await db.command({
+      validate: "transactions",
+      full: true
+    });
+    
+    res.json({
+      sampleDocument: sampleDoc,
+      validation: validationResult,
+      collectionStats: await Transaction.db.collection('transactions').stats()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const fixSchema = async (req, res) => {
+  try {
+    // Remove strict validation temporarily
+    await db.command({
+      collMod: "transactions",
+      validator: {}
+    });
+    
+    res.json({ message: "Schema validation disabled", success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
