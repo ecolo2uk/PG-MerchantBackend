@@ -22,7 +22,7 @@ router.post("/default-qr", authenticateMerchant, generateDefaultQR);
 router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatus);
 router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
 // Add to your transaction routes
-router.get("/debug-schema", authenticateMerchant, debugSchema);
+router.get("/debug-simple", authenticateMerchant, debugSchema);
 router.post("/fix-schema", authenticateMerchant, fixSchema);
 router.get("/test-connection", authenticateMerchant, testConnection);
 // Debug routes

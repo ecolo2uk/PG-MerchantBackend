@@ -61,13 +61,15 @@ export const generateEnpayDynamicQR = async (transactionData) => {
 };
 
 // Generate Default QR via Enpay API
+// services/enpayService.js
+// ...
 export const generateEnpayDefaultQR = async (transactionData) => {
   try {
     console.log('🟡 Calling Enpay API for Default QR...');
     
     const payload = {
       merchantHashId: ENPAY_CONFIG.merchantHashId,
-      txnAmount: 0, // Default QR has amount 0
+      txnAmount: 1, // CHANGED: Set a minimum amount (e.g., 1) as Enpay API requires it
       txnNote: 'Default QR Code',
       txnRefId: transactionData.transactionId
     };

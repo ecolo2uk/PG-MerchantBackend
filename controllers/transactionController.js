@@ -12,20 +12,23 @@ export const generateDynamicQR = async (req, res) => {
     const merchantId = req.user.id;
     const merchantName = req.user.name || 'Merchant';
 
-   if (!amount || isNaN(amount) || parseFloat(amount) <= 0){
+    const parsedAmount = parseFloat(amount); // Ensure it's parsed consistently
+
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({
         code: 400,
-        message: 'Valid amount is required'
+        message: 'Valid amount is required and must be greater than 0'
       });
     }
 
-      if (parseFloat(amount) < 1) { 
+    const MINIMUM_ENPAY_AMOUNT = 100; // <-- IMPORTANT: Verify this with Enpay documentation!
+    if (parsedAmount < MINIMUM_ENPAY_AMOUNT) { 
         return res.status(400).json({
             code: 400,
-            message: 'Transaction amount must be at least 1 INR'
+            message: `Transaction amount must be at least ${MINIMUM_ENPAY_AMOUNT} INR`
         });
     }
-    
+
     // Generate unique IDs
     const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
@@ -35,7 +38,7 @@ export const generateDynamicQR = async (req, res) => {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      amount: parseFloat(amount),
+      amount: parsedAmount, // CORRECTED: Use parsedAmount
       status: 'GENERATED',
       createdAt: new Date().toISOString(),
       "Commission Amount": 0,
@@ -79,7 +82,7 @@ export const generateDynamicQR = async (req, res) => {
     transactionData.status = 'INITIATED'; // Change status to INITIATED
 
     // Generate local QR as fallback
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${txnNote}&tr=${transactionId}`;
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${txnNote}&tr=${transactionId}`; // CORRECTED: Use parsedAmount
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
     transactionData.qrCode = qrCodeUrl;
@@ -96,7 +99,7 @@ export const generateDynamicQR = async (req, res) => {
       transactionId: savedTransaction.transactionId,
       qrCode: savedTransaction.enpayQRCode ? `data:image/png;base64,${savedTransaction.enpayQRCode}` : savedTransaction.qrCode,
       paymentUrl: savedTransaction.paymentUrl,
-      amount: amount,
+      amount: parsedAmount, // CORRECTED: Use parsedAmount
       enpayTxnId: savedTransaction.enpayTxnId,
       message: 'QR generated successfully with Enpay integration'
     });
