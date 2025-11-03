@@ -17,7 +17,7 @@ router.get('/debug-simple', debugDefaultQRSimple);
 // All routes protected with merchant authentication
 router.get("/", authenticateMerchant, getTransactions);
 router.post("/generate-qr", authenticateMerchant, validateTransactionData, generateDynamicQR);
-router.post("/default-qr", authenticateMerchant, validateTransactionData, generateDefaultQR);
+router.post("/default-qr", authenticateMerchant,  generateDefaultQR);
 router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatus);
 router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
 router.get("/test", authenticateMerchant, testConnection); // Add test endpoint
