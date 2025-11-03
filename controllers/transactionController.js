@@ -7,6 +7,7 @@ const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).sub
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
 // Generate Dynamic QR
+// Generate Dynamic QR - FIXED VERSION
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = 'Payment for Order' } = req.body;
@@ -14,39 +15,41 @@ export const generateDynamicQR = async (req, res) => {
     const merchantName = req.user.name || 'Merchant';
 
     // Generate unique IDs
-    const transactionId = generateTransactionId();
-    const txnRefId = generateTxnRefId();
-    const merchantOrderId = `ORDER${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const vendorRefId = generateVendorRefId();
+    const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const vendorRefId = `VENDOR${Date.now()}`;
 
+    // ✅ COMPLETE data that matches schema
     const transactionData = {
       transactionId,
-      merchantId,
+      merchantId: new mongoose.Types.ObjectId(merchantId),
       merchantName,
       amount: Number(amount),
-      txnNote,
-      txnRefId,
-      merchantOrderId,
-      mid: req.user.mid || 'DEFAULT_MID',
-      "Vendor Ref ID": vendorRefId,
-      status: 'GENERATED',
-      upiId: 'enpay1.skypal@fino',
-      merchantVpa: 'enpay1.skypal@fino',
       "Commission Amount": 0,
-      "Settlement Status": "NA"
+      createdAt: new Date().toISOString(), // ✅ REQUIRED FIELD
+      mid: req.user.mid || 'DEFAULT_MID',
+      "Settlement Status": "NA",
+      status: 'GENERATED',
+      "Vendor Ref ID": vendorRefId,
+      // Optional fields but include them
+      txnNote,
+      upiId: 'enpay1.skypal@fino',
+      merchantVpa: 'enpay1.skypal@fino'
     };
 
-    const transaction = new QrTransaction(transactionData);
-    await transaction.save();
+    console.log('🟡 Transaction Data:', transactionData);
 
     // Generate QR code URL
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=Merchant&am=${amount}&tn=${txnNote}&tr=${transactionId}`;
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${txnNote}&tr=${transactionId}`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Update transaction with QR data
-    transaction.qrCode = qrCodeUrl;
-    transaction.paymentUrl = paymentUrl;
+    // Add QR data
+    transactionData.qrCode = qrCodeUrl;
+    transactionData.paymentUrl = paymentUrl;
+
+    const transaction = new Transaction(transactionData);
     await transaction.save();
+
+    console.log('✅ QR Saved successfully in transactions collection');
 
     res.status(200).json({
       success: true,
@@ -58,23 +61,30 @@ export const generateDynamicQR = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Generate QR Error:', error);
+    console.error('❌ Generate QR Error:', error);
+    
+    // Detailed error log
+    console.error('❌ Validation Error Details:', {
+      name: error.name,
+      message: error.message,
+      errors: error.errors
+    });
+
     res.status(500).json({
       code: 500,
       message: 'Failed to generate QR',
-      error: error.message
+      error: error.message,
+      errorType: error.name
     });
   }
 };
 
-// Generate Default QR - ULTRA SIMPLIFIED
+// Generate Default QR - FIXED VERSION
 export const generateDefaultQR = async (req, res) => {
   try {
-    console.log('🔵 generateDefaultQR ULTRA SIMPLIFIED - Start');
+    console.log('🔵 generateDefaultQR - Start');
     
-    // Basic validation
     if (!req.user || !req.user.id) {
-      console.error('❌ No user found');
       return res.status(401).json({
         code: 401,
         success: false,
@@ -85,54 +95,47 @@ export const generateDefaultQR = async (req, res) => {
     const merchantId = req.user.id;
     const merchantName = req.user.name || 'Default Merchant';
 
-    console.log('🔵 Processing for merchant:', { merchantId, merchantName });
-
-    // Generate simple IDs
+    // Generate IDs
     const transactionId = `DFT${Date.now()}`;
-    
-    // Create minimal data that matches your schema
-    const qrData = {
+    const vendorRefId = `VENDOR${Date.now()}`;
+
+    // ✅ COMPLETE data matching schema
+    const transactionData = {
       transactionId: transactionId,
-      merchantId: merchantId,
+      merchantId: new mongoose.Types.ObjectId(merchantId),
       merchantName: merchantName,
       amount: 0,
-      status: 'GENERATED',
-      txnNote: 'Default QR Code',
-      mid: req.user.mid || 'DEFAULT_MID',
-      "Vendor Ref ID": `VENDOR${Date.now()}`,
       "Commission Amount": 0,
+      createdAt: new Date().toISOString(), // ✅ REQUIRED
+      mid: req.user.mid || 'DEFAULT_MID',
       "Settlement Status": "NA",
+      status: 'GENERATED',
+      "Vendor Ref ID": vendorRefId,
+      txnNote: 'Default QR Code',
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino'
     };
 
-    console.log('🔵 QR Data prepared:', qrData);
+    console.log('🔵 Transaction Data prepared:', transactionData);
 
     // Generate QR URLs
     const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=0&tn=Default%20QR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
-    console.log('🔵 Generated QR URLs');
+    // Add QR data
+    transactionData.qrCode = qrCodeUrl;
+    transactionData.paymentUrl = paymentUrl;
 
-    // Add QR data to the object
-    qrData.qrCode = qrCodeUrl;
-    qrData.paymentUrl = paymentUrl;
+    console.log('🔵 Final data with QR:', transactionData);
 
-    console.log('🔵 Final data with QR:', qrData);
-
-    // Try to save - use try/catch around save
-    let savedTransaction;
-    try {
-      const transaction = new QrTransaction(qrData);
-      savedTransaction = await transaction.save();
-      console.log('✅ Save successful');
-    } catch (saveError) {
-      console.error('❌ Save failed:', saveError);
-      throw saveError;
-    }
+    // Save to database
+    const transaction = new Transaction(transactionData);
+    const savedTransaction = await transaction.save();
+    
+    console.log('✅ Default QR saved successfully');
 
     // Success response
-    const response = {
+    res.status(200).json({
       success: true,
       transactionId: savedTransaction.transactionId,
       qrCode: savedTransaction.qrCode,
@@ -140,11 +143,7 @@ export const generateDefaultQR = async (req, res) => {
       amount: savedTransaction.amount,
       isDefault: true,
       message: 'Default QR generated successfully'
-    };
-
-    console.log('✅ Default QR generation completed');
-    
-    res.status(200).json(response);
+    });
 
   } catch (error) {
     console.error('❌ generateDefaultQR Error:', error);
@@ -159,17 +158,12 @@ export const generateDefaultQR = async (req, res) => {
       errors: error.errors
     });
 
-    // Return specific error response
     res.status(500).json({
       code: 500,
       success: false,
       message: 'Failed to generate default QR',
       error: error.message,
-      errorType: error.name,
-      ...(process.env.NODE_ENV === 'development' && {
-        stack: error.stack,
-        details: error.errors
-      })
+      errorType: error.name
     });
   }
 };
