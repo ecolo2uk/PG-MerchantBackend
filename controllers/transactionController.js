@@ -76,6 +76,7 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 // Generate Default QR - FIXED
+// transactionController.js - FIXED DEFAULT QR
 export const generateDefaultQR = async (req, res) => {
   try {
     console.log('🔵 generateDefaultQR - Start');
@@ -88,21 +89,21 @@ export const generateDefaultQR = async (req, res) => {
       });
     }
 
-    const merchantId = req.user.id;
+    const merchantId = req.user.id; // This is a string
     const merchantName = req.user.name || 'Default Merchant';
 
     // Generate IDs
     const transactionId = `DFT${Date.now()}`;
-    const vendorRefId = generateVendorRefId();
+    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-    // ✅ COMPLETE data matching EXACT schema
+    // ✅ FIXED: Use merchantId as STRING (not ObjectId)
     const transactionData = {
       transactionId,
-      merchantId: new mongoose.Types.ObjectId(merchantId),
+      merchantId: merchantId, // CHANGED: Use string, not ObjectId
       merchantName,
       amount: 0,
       "Commission Amount": 0,
-      createdAt: new Date().toISOString(), // ✅ REQUIRED
+      createdAt: new Date().toISOString(),
       mid: req.user.mid || 'DEFAULT_MID',
       "Settlement Status": "NA",
       status: 'GENERATED',
@@ -123,6 +124,8 @@ export const generateDefaultQR = async (req, res) => {
     transactionData.qrCode = qrCodeUrl;
     transactionData.paymentUrl = paymentUrl;
 
+    console.log('🔵 Saving default QR to database...');
+
     // Save to database
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
@@ -141,12 +144,25 @@ export const generateDefaultQR = async (req, res) => {
 
   } catch (error) {
     console.error('❌ generateDefaultQR Error:', error);
+    console.error('❌ Error details:', error.message);
     
+    // More specific error handling
     if (error.name === 'ValidationError') {
+      console.error('❌ Validation errors:', error.errors);
       return res.status(400).json({
         code: 400,
         success: false,
         message: 'Data validation failed',
+        error: error.message,
+        validationErrors: error.errors
+      });
+    }
+
+    if (error.name === 'MongoServerError' && error.code === 121) {
+      return res.status(400).json({
+        code: 400,
+        success: false,
+        message: 'Document validation failed - schema mismatch',
         error: error.message
       });
     }
@@ -155,19 +171,25 @@ export const generateDefaultQR = async (req, res) => {
       code: 500,
       success: false,
       message: 'Failed to generate default QR',
-      error: error.message
+      error: error.message,
+      errorType: error.name
     });
   }
 };
 
 // Get Transactions - FIXED
+// Update getTransactions function
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
     console.log("🟡 Fetching transactions for merchant:", merchantId);
 
+    // FIXED: Handle both string and ObjectId merchantId
     const transactions = await Transaction.find({ 
-      merchantId: new mongoose.Types.ObjectId(merchantId) 
+      $or: [
+        { merchantId: merchantId }, // String match
+        { merchantId: new mongoose.Types.ObjectId(merchantId) } // ObjectId match
+      ]
     })
     .sort({ createdAt: -1 })
     .select('-__v');
