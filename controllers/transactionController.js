@@ -67,63 +67,6 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-// Debug endpoints
-export const testSchemaValidation = async (req, res) => {
-  try {
-    console.log('🔍 Testing schema validation...');
-    
-    const testData = {
-      transactionId: `TEST${Date.now()}`,
-      merchantId: req.user.id,
-      merchantName: 'Test Merchant',
-      amount: 0,
-      status: 'GENERATED',
-      mid: 'TEST_MID',
-      "Vendor Ref ID": `VENDOR${Date.now()}`,
-      "Commission Amount": 0,
-      "Settlement Status": "NA",
-      upiId: 'enpay1.skypal@fino',
-      merchantVpa: 'enpay1.skypal@fino',
-      txnNote: 'Test QR'
-    };
-
-    console.log('🔍 Test data:', testData);
-
-    // Test model creation
-    const testDoc = new QrTransaction(testData);
-    
-    // Test validation
-    const validationError = testDoc.validateSync();
-    if (validationError) {
-      console.log('❌ Validation errors found:');
-      Object.keys(validationError.errors).forEach(key => {
-        console.log(`  - ${key}: ${validationError.errors[key].message}`);
-      });
-      
-      return res.json({
-        success: false,
-        message: 'Schema validation failed',
-        errors: validationError.errors
-      });
-    }
-
-    console.log('✅ Schema validation passed');
-    
-    res.json({
-      success: true,
-      message: 'Schema validation successful',
-      testData: testData
-    });
-
-  } catch (error) {
-    console.error('❌ Schema test error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Schema test failed',
-      error: error.message
-    });
-  }
-};
 
 export const testDatabaseConnection = async (req, res) => {
   try {
@@ -613,6 +556,60 @@ export const initiateRefund = async (req, res) => {
       code: 500,
       message: "Failed to initiate refund",
       error: error.message 
+    });
+  }
+};
+
+// Simulate Payment Webhook
+export const simulatePaymentWebhook = async (req, res) => {
+  try {
+    const { transactionId, merchantOrderId, txnRefId, amount = 100, status = "SUCCESS" } = req.body;
+
+    const webhookData = {
+      transactionId: transactionId,
+      merchantOrderId: merchantOrderId,
+      txnRefId: txnRefId,
+      status: status,
+      upiId: "customer@upi",
+      amount: amount,
+      customerName: "Test Customer",
+      customerVpa: "customer@okicici",
+      customerContact: "9876543210",
+      settlementStatus: "Unsettled",
+      enpayTxnId: `ENPAY${Date.now()}`,
+      mid: `MID${Date.now()}`,
+      "Vendor Ref ID": `VENDORREF${Date.now()}`,
+      "Commission Amount": 0,
+      merchantName: "Test Merchant"
+    };
+
+    // Call webhook internally
+    const fakeReq = { body: webhookData };
+    const fakeRes = {
+      json: (data) => {
+        console.log("✅ Simulated webhook response:", data);
+        res.json({
+          code: 200,
+          message: "Webhook simulation completed",
+          simulation: data
+        });
+      },
+      status: (code) => ({
+        json: (data) => {
+          console.log("❌ Simulated webhook error:", data);
+          res.status(code).json(data);
+        }
+      })
+    };
+
+    await handlePaymentWebhook(fakeReq, fakeRes);
+
+  } catch (error) {
+    console.error("❌ Simulation error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Simulation failed",
+      error: error.message
     });
   }
 };
