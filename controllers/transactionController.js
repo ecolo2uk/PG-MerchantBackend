@@ -68,7 +68,6 @@ export const generateDynamicQR = async (req, res) => {
 };
 
 
-
 export const generateDefaultQR = async (req, res) => {
   try {
     console.log('🔵 generateDefaultQR ULTRA SIMPLIFIED - Start');
@@ -403,6 +402,49 @@ export const debugDefaultQRSimple = async (req, res) => {
   }
 };
 
+// Other functions that work with MAIN collection only
+// export const checkTransactionStatus = async (req, res) => {
+//   try {
+//     const { transactionId } = req.params;
+//     const merchantId = req.user.id;
+
+//     console.log("🟡 Checking transaction status in MAIN collection:", { transactionId, merchantId });
+
+//     const transaction = await Transaction.findOne({
+//       transactionId,
+//       merchantId: new mongoose.Types.ObjectId(merchantId)
+//     });
+
+//     if (!transaction) {
+//       return res.status(404).json({
+//         code: 404,
+//         message: "Transaction not found in MAIN collection"
+//       });
+//     }
+
+//     res.json({
+//       code: 200,
+//       transaction: {
+//         transactionId: transaction.transactionId,
+//         status: transaction.status,
+//         amount: transaction.amount,
+//         upiId: transaction.upiId,
+//         txnRefId: transaction.txnRefId,
+//         createdAt: transaction.createdAt,
+//         settlementStatus: transaction["Settlement Status"]
+//       },
+//       collection: "transactions" // 🔥 Confirm from main collection
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Check Status Error:", error);
+//     res.status(500).json({
+//       code: 500,
+//       message: "Failed to check transaction status",
+//       error: error.message
+//     });
+//   }
+// };
 
 export const getTransactionDetails = async (req, res) => {
   try {
@@ -598,6 +640,60 @@ export const downloadReceipt = async (req, res) => {
   }
 };
 
+// export const initiateRefund = async (req, res) => {
+//   try {
+//     const { transactionId } = req.params;
+//     const { refundAmount, reason } = req.body;
+//     const merchantId = req.user.id;
+
+//     const transaction = await Transaction.findOne({ 
+//       transactionId, 
+//       merchantId: new mongoose.Types.ObjectId(merchantId)
+//     });
+
+//     if (!transaction) {
+//       return res.status(404).json({ 
+//         code: 404,
+//         message: "Transaction not found in MAIN collection" 
+//       });
+//     }
+
+//     if (transaction.status !== "SUCCESS") {
+//       return res.status(400).json({ 
+//         code: 400,
+//         message: "Refund only available for successful transactions" 
+//       });
+//     }
+
+//     if (refundAmount > transaction.amount) {
+//       return res.status(400).json({ 
+//         code: 400,
+//         message: "Refund amount cannot exceed original transaction amount" 
+//       });
+//     }
+
+//     transaction.status = "REFUNDED";
+//     await transaction.save();
+
+//     res.json({
+//       code: 200,
+//       message: "Refund initiated successfully",
+//       refundId: `REF${Date.now()}`,
+//       transactionId: transactionId,
+//       refundAmount: refundAmount,
+//       originalAmount: transaction.amount,
+//       status: "REFUNDED"
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Refund Error:", error);
+//     res.status(500).json({ 
+//       code: 500,
+//       message: "Failed to initiate refund",
+//       error: error.message 
+//     });
+//   }
+// };
 
 // Manual sync endpoint for existing QR transactions to MAIN
 export const syncAllQRToMain = async (req, res) => {
