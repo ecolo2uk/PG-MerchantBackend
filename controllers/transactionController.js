@@ -288,43 +288,44 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
-// Add this debug endpoint to check schema validation
-export const debugSchema = async (req, res) => {
+// Add this to your transactionController.js
+export const debugSchemaDetails = async (req, res) => {
   try {
-    const sampleData = {
-      transactionId: generateTransactionId(),
-      merchantId: new mongoose.Types.ObjectId(req.user.id),
-      merchantName: "Test Merchant",
-      amount: 100,
-      status: "INITIATED",
-      mid: generateMid(),
-      "Vendor Ref ID": generateVendorRefId(),
-      "Commission Amount": 0,
-      "Settlement Status": "Unsettled",
-      createdAt: new Date()
-    };
-
-    console.log("🧪 Testing schema with:", sampleData);
-
-    const testTransaction = new Transaction(sampleData);
-    const validationError = testTransaction.validateSync();
+    const Transaction = require("../models/Transaction.js");
     
-    if (validationError) {
-      return res.json({
-        code: 400,
-        message: "Schema validation failed",
-        errors: validationError.errors
-      });
-    }
-
+    // Get the schema paths
+    const schemaPaths = Transaction.schema.paths;
+    const requiredFields = [];
+    const optionalFields = [];
+    
+    Object.keys(schemaPaths).forEach(path => {
+      const schemaType = schemaPaths[path];
+      if (schemaType.isRequired) {
+        requiredFields.push({
+          path: path,
+          type: schemaType.instance,
+          isRequired: schemaType.isRequired
+        });
+      } else {
+        optionalFields.push({
+          path: path,
+          type: schemaType.instance
+        });
+      }
+    });
+    
     res.json({
       code: 200,
-      message: "Schema validation passed",
-      sampleData: sampleData
+      schemaInfo: {
+        collectionName: Transaction.collection.name,
+        requiredFields: requiredFields,
+        optionalFields: optionalFields,
+        totalPaths: Object.keys(schemaPaths).length
+      }
     });
-
+    
   } catch (error) {
-    console.error("❌ Debug error:", error);
+    console.error("❌ Schema debug error:", error);
     res.status(500).json({
       code: 500,
       error: error.message
