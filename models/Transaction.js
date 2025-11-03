@@ -71,7 +71,29 @@ const transactionSchema = new mongoose.Schema({
   "Failure Reasons": { type: String },
   "Vendor Txn ID": { type: String },
   enpayTxnId: { type: String },
-  updatedAt: { type: String }
+  updatedAt: { type: String },
+  
+    enpayInitiationStatus: {
+    type: String,
+    enum: ['NOT_ATTEMPTED', 'ATTEMPTED_SUCCESS', 'ATTEMPTED_FAILED'],
+    default: 'NOT_ATTEMPTED'
+  },
+  enpayError: {
+    type: mongoose.Schema.Types.Mixed
+  },
+  enpayQRCode: {
+    type: String // Store QR from Enpay API
+  },
+  enpayTxnId: {
+    type: String // Transaction ID from Enpay
+  },
+  merchantHashId: {
+    type: String,
+    default: 'MERCDSH51Y7CD4YJLFIZR8NF'
+  },
+  txnRefId: {
+    type: String // Reference ID for Enpay
+  }
 
 }, {
   collection: 'transactions',

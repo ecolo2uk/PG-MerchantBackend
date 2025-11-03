@@ -1,110 +1,103 @@
-// services/enpayService.js - UPDATED
+// services/enpayService.js
 import axios from 'axios';
 
-class EnpayService {
-  constructor() {
-    this.baseURL = 'https://api.enpay.in/enpay-product-service/api/v1';
-    this.merchantKey = '0851439b-03df-4983-88d6-32399b1e4514';
-    this.merchantSecret = 'bae97f533a594af9bf3dded47f09c34e15e053d1';
-    this.merchantHashId = 'MERCDSH51Y7CD4YJLFIZR8NF';
+const ENPAY_CONFIG = {
+  baseURL: 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway',
+  merchantKey: '0851439b-03df-4983-88d6-32399b1e4514',
+  merchantSecret: 'bae97f533a594af9bf3dded47f09c34e15e053d1',
+  merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF'
+};
+
+const enpayApi = axios.create({
+  baseURL: ENPAY_CONFIG.baseURL,
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Merchant-Key': ENPAY_CONFIG.merchantKey,
+    'X-Merchant-Secret': ENPAY_CONFIG.merchantSecret
   }
+});
 
-  // FIXED: Use dynamicQR endpoint instead of initiateCollectRequest
-  async generateDynamicQR({ amount, txnNote = "Payment for Order", txnRefId }) {
-    try {
-      console.log('🟡 Generating Enpay Dynamic QR:', { amount, txnNote, txnRefId });
+// Generate Dynamic QR via Enpay API
+export const generateEnpayDynamicQR = async (transactionData) => {
+  try {
+    console.log('🟡 Calling Enpay API for Dynamic QR...');
+    
+    const payload = {
+      merchantHashId: ENPAY_CONFIG.merchantHashId,
+      txnAmount: transactionData.amount,
+      txnNote: transactionData.txnNote || 'Payment for Order',
+      txnRefId: transactionData.transactionId // Use your transactionId as reference
+    };
 
-      const payload = {
-        "merchantHashId": this.merchantHashId,
-        "txnAmount": parseFloat(amount),
-        "txnNote": txnNote,
-        "txnRefId": txnRefId
+    console.log('🟡 Enpay API Payload:', payload);
+
+    const response = await enpayApi.post('/dynamicQR', payload);
+    
+    console.log('✅ Enpay API Response:', response.data);
+
+    if (response.data.code === 0) {
+      return {
+        success: true,
+        enpayQRCode: response.data.details, // Base64 QR code
+        enpayTxnId: response.data.transactionId, // Enpay transaction ID
+        message: response.data.message
       };
-
-      const headers = {
-        'Content-Type': 'application/json',
-        'X-Merchant-Key': this.merchantKey,
-        'X-Merchant-Secret': this.merchantSecret
-      };
-
-      const response = await axios.post(
-        `${this.baseURL}/merchant-gateway/dynamicQR`, // CORRECT ENDPOINT
-        payload,
-        {
-          headers,
-          timeout: 30000
-        }
-      );
-
-      console.log('✅ Enpay Dynamic QR Response:', response.data);
-
-      if (response.data && response.data.code === 0) { // Success code is 0
-        return {
-          success: true,
-          data: response.data,
-          qrCode: response.data.details, // Base64 QR code
-          statusCode: response.status
-        };
-      } else {
-        return {
-          success: false,
-          error: response.data || { message: "Unknown Enpay API error" },
-          statusCode: response.status || 500
-        };
-      }
-
-    } catch (error) {
-      console.error('❌ EnpayService Dynamic QR Error:', error.response ? error.response.data : error.message);
+    } else {
       return {
         success: false,
-        error: error.response?.data || error.message,
-        statusCode: error.response?.status || 500
+        error: response.data.message || 'Enpay API error'
       };
     }
+
+  } catch (error) {
+    console.error('❌ Enpay API Error:', error.response?.data || error.message);
+    
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message || 'Enpay API call failed'
+    };
   }
+};
 
-  async checkTransactionStatus(merchantOrderId) {
-    try {
-      console.log('🟡 Checking Enpay transaction status for merchantOrderId:', merchantOrderId);
+// Generate Default QR via Enpay API
+export const generateEnpayDefaultQR = async (transactionData) => {
+  try {
+    console.log('🟡 Calling Enpay API for Default QR...');
+    
+    const payload = {
+      merchantHashId: ENPAY_CONFIG.merchantHashId,
+      txnAmount: 0, // Default QR has amount 0
+      txnNote: 'Default QR Code',
+      txnRefId: transactionData.transactionId
+    };
 
-      const headers = {
-        'X-Merchant-Key': this.merchantKey,
-        'X-Merchant-Secret': this.merchantSecret
+    console.log('🟡 Enpay Default QR Payload:', payload);
+
+    const response = await enpayApi.post('/dynamicQR', payload);
+    
+    console.log('✅ Enpay Default QR Response:', response.data);
+
+    if (response.data.code === 0) {
+      return {
+        success: true,
+        enpayQRCode: response.data.details,
+        enpayTxnId: response.data.transactionId,
+        message: response.data.message
       };
-
-      const response = await axios.get(
-        `${this.baseURL}/merchant-gateway/transactionStatus/${merchantOrderId}`,
-        {
-          headers,
-          timeout: 30000
-        }
-      );
-
-      console.log('✅ Enpay Status Check Response:', response.data);
-
-      if (response.data && response.data.status === 'SUCCESS') {
-        return {
-          success: true,
-          data: response.data,
-          statusCode: response.status
-        };
-      } else {
-        return {
-          success: false,
-          error: response.data || { message: "Unknown Enpay API error" },
-          statusCode: response.status || 500
-        };
-      }
-
-    } catch (error) {
-      console.error('❌ Enpay Status Check Error:', error.response ? error.response.data : error.message);
+    } else {
       return {
         success: false,
-        error: error.response?.data || error.message,
-        statusCode: error.response?.status || 500
+        error: response.data.message || 'Enpay API error'
       };
     }
-  }
-}
 
-export default new EnpayService();
+  } catch (error) {
+    console.error('❌ Enpay Default QR API Error:', error.response?.data || error.message);
+    
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message || 'Enpay API call failed'
+    };
+  }
+};

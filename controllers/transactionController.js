@@ -1,11 +1,11 @@
 import Transaction from '../models/Transaction.js'; // ✅ एकच model
 import mongoose from 'mongoose';
+import { generateEnpayDynamicQR } from '../services/enpayService.js';
+import { generateEnpayDefaultQR } from '../services/enpayService.js';
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// Generate Dynamic QR - FIXED
-// EMERGENCY BYPASS - Add this function
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = 'Payment for Order' } = req.body;
@@ -23,10 +23,10 @@ export const generateDynamicQR = async (req, res) => {
     const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-    // MINIMAL transaction data
+    // Create transaction data
     const transactionData = {
       transactionId,
-      merchantId: merchantId, // Keep as string
+      merchantId: merchantId,
       merchantName,
       amount: parseFloat(amount),
       status: 'GENERATED',
@@ -38,31 +38,60 @@ export const generateDynamicQR = async (req, res) => {
       txnNote,
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino',
-      merchantOrderId: `ORDER${Date.now()}`
+      merchantOrderId: `ORDER${Date.now()}`,
+      txnRefId: transactionId, // For Enpay reference
+      merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF'
     };
 
-    console.log('🟡 Transaction Data (Schema Validation Disabled):', transactionData);
+    console.log('🟡 Calling Enpay API...');
 
-    // Generate QR code
+    // STEP 1: Call Enpay API to create actual transaction
+    const enpayResult = await generateEnpayDynamicQR(transactionData);
+
+    if (!enpayResult.success) {
+      // If Enpay API fails, still save transaction but mark as failed
+      transactionData.status = 'FAILED';
+      transactionData.enpayInitiationStatus = 'ATTEMPTED_FAILED';
+      transactionData.enpayError = enpayResult.error;
+      
+      const transaction = new Transaction(transactionData);
+      await transaction.save();
+
+      return res.status(500).json({
+        code: 500,
+        success: false,
+        message: 'Enpay API call failed',
+        error: enpayResult.error
+      });
+    }
+
+    // STEP 2: Enpay API successful - update transaction with Enpay data
+    transactionData.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
+    transactionData.enpayQRCode = enpayResult.enpayQRCode;
+    transactionData.enpayTxnId = enpayResult.enpayTxnId;
+    transactionData.status = 'INITIATED'; // Change status to INITIATED
+
+    // Generate local QR as fallback
     const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${txnNote}&tr=${transactionId}`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
     transactionData.qrCode = qrCodeUrl;
     transactionData.paymentUrl = paymentUrl;
 
-    // Save to database - should work now that validation is disabled
+    // Save to database
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
 
-    console.log('✅ QR Saved successfully with ID:', savedTransaction.transactionId);
+    console.log('✅ QR Saved successfully with Enpay integration');
 
     res.status(200).json({
       success: true,
       transactionId: savedTransaction.transactionId,
-      qrCode: qrCodeUrl,
-      paymentUrl: paymentUrl,
+      qrCode: savedTransaction.enpayQRCode ? `data:image/png;base64,${savedTransaction.enpayQRCode}` : savedTransaction.qrCode,
+      paymentUrl: savedTransaction.paymentUrl,
       amount: amount,
-      message: 'QR generated successfully'
+      enpayTxnId: savedTransaction.enpayTxnId,
+      message: 'QR generated successfully with Enpay integration'
     });
 
   } catch (error) {
@@ -75,8 +104,7 @@ export const generateDynamicQR = async (req, res) => {
     });
   }
 };
-// Generate Default QR - FIXED
-// transactionController.js - FIXED DEFAULT QR
+
 export const generateDefaultQR = async (req, res) => {
   try {
     console.log('🔵 generateDefaultQR - Start');
@@ -89,17 +117,16 @@ export const generateDefaultQR = async (req, res) => {
       });
     }
 
-    const merchantId = req.user.id; // This is a string
+    const merchantId = req.user.id;
     const merchantName = req.user.name || 'Default Merchant';
 
     // Generate IDs
     const transactionId = `DFT${Date.now()}`;
     const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-    // ✅ FIXED: Use merchantId as STRING (not ObjectId)
     const transactionData = {
       transactionId,
-      merchantId: merchantId, // CHANGED: Use string, not ObjectId
+      merchantId: merchantId,
       merchantName,
       amount: 0,
       "Commission Amount": 0,
@@ -111,68 +138,69 @@ export const generateDefaultQR = async (req, res) => {
       txnNote: 'Default QR Code',
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino',
-      merchantOrderId: `ORDER${Date.now()}`
+      merchantOrderId: `ORDER${Date.now()}`,
+      txnRefId: transactionId,
+      merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF'
     };
 
-    console.log('🔵 Transaction Data for Default QR:', transactionData);
+    console.log('🔵 Calling Enpay API for Default QR...');
 
-    // Generate QR URLs
+    // Call Enpay API for default QR
+    const enpayResult = await generateEnpayDefaultQR(transactionData);
+
+    if (!enpayResult.success) {
+      transactionData.status = 'FAILED';
+      transactionData.enpayInitiationStatus = 'ATTEMPTED_FAILED';
+      transactionData.enpayError = enpayResult.error;
+      
+      const transaction = new Transaction(transactionData);
+      await transaction.save();
+
+      return res.status(500).json({
+        code: 500,
+        success: false,
+        message: 'Enpay API call failed for default QR',
+        error: enpayResult.error
+      });
+    }
+
+    // Enpay API successful
+    transactionData.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
+    transactionData.enpayQRCode = enpayResult.enpayQRCode;
+    transactionData.enpayTxnId = enpayResult.enpayTxnId;
+    transactionData.status = 'INITIATED';
+
+    // Generate local QR as fallback
     const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=0&tn=Default%20QR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Add QR data
     transactionData.qrCode = qrCodeUrl;
     transactionData.paymentUrl = paymentUrl;
 
-    console.log('🔵 Saving default QR to database...');
-
-    // Save to database
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
     
-    console.log('✅ Default QR saved successfully with ID:', savedTransaction.transactionId);
+    console.log('✅ Default QR saved successfully with Enpay integration');
 
     res.status(200).json({
       success: true,
       transactionId: savedTransaction.transactionId,
-      qrCode: savedTransaction.qrCode,
+      qrCode: savedTransaction.enpayQRCode ? `data:image/png;base64,${savedTransaction.enpayQRCode}` : savedTransaction.qrCode,
       paymentUrl: savedTransaction.paymentUrl,
       amount: savedTransaction.amount,
+      enpayTxnId: savedTransaction.enpayTxnId,
       isDefault: true,
-      message: 'Default QR generated successfully'
+      message: 'Default QR generated successfully with Enpay integration'
     });
 
   } catch (error) {
     console.error('❌ generateDefaultQR Error:', error);
-    console.error('❌ Error details:', error.message);
     
-    // More specific error handling
-    if (error.name === 'ValidationError') {
-      console.error('❌ Validation errors:', error.errors);
-      return res.status(400).json({
-        code: 400,
-        success: false,
-        message: 'Data validation failed',
-        error: error.message,
-        validationErrors: error.errors
-      });
-    }
-
-    if (error.name === 'MongoServerError' && error.code === 121) {
-      return res.status(400).json({
-        code: 400,
-        success: false,
-        message: 'Document validation failed - schema mismatch',
-        error: error.message
-      });
-    }
-
     res.status(500).json({
       code: 500,
       success: false,
       message: 'Failed to generate default QR',
-      error: error.message,
-      errorType: error.name
+      error: error.message
     });
   }
 };
