@@ -7,12 +7,13 @@ import {
   checkTransactionStatus,
   handlePaymentWebhook,
   getTransactionDetails,
-  testConnection
+  testConnection,
+  debugDefaultQRSimple
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 import  { validateTransactionData } from "../middleware/validationMiddleware.js";
 const router = express.Router();
-
+router.get('/debug-simple', debugDefaultQRSimple);
 // All routes protected with merchant authentication
 router.get("/", authenticateMerchant, getTransactions);
 router.post("/generate-qr", authenticateMerchant, validateTransactionData, generateDynamicQR);

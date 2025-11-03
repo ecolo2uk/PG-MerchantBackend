@@ -67,89 +67,126 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-// Generate Default QR
-// Generate Default QR
+// SIMPLIFIED VERSION - Debug the issue
 export const generateDefaultQR = async (req, res) => {
   try {
-    console.log('🟡 generateDefaultQR called - Start');
-    console.log('🟡 User object:', req.user);
+    console.log('🟡 generateDefaultQR SIMPLIFIED - Start');
     
-    if (!req.user) {
-      console.error('❌ No user object found in request');
+    // Basic validation
+    if (!req.user || !req.user.id) {
+      console.error('❌ Missing user or user.id');
       return res.status(401).json({
         code: 401,
-        message: 'User not authenticated'
+        success: false,
+        message: 'User authentication required'
       });
     }
 
     const merchantId = req.user.id;
-    const merchantName = req.user.name || req.user.firstname || 'Merchant';
+    const merchantName = req.user.name || 'Test Merchant';
 
-    console.log('🟡 Merchant ID:', merchantId);
-    console.log('🟡 Merchant Name:', merchantName);
+    console.log('🟡 Merchant Info:', { merchantId, merchantName });
 
-    // Generate unique IDs for default QR
-    const transactionId = `DFT${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-    const merchantOrderId = `ORDER${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-
-    console.log('🟡 Generated IDs:', { transactionId, txnRefId, merchantOrderId, vendorRefId });
-
-    const defaultQRData = {
+    // Generate simple IDs
+    const transactionId = `DFT${Date.now()}`;
+    
+    // Create minimal data
+    const qrData = {
       transactionId,
-      merchantId,
+      merchantId: merchantId, // Don't convert to ObjectId yet
       merchantName,
       amount: 0,
       status: 'GENERATED',
-      txnRefId,
-      merchantOrderId,
-      mid: req.user.mid || 'DEFAULT_MID',
-      "Vendor Ref ID": vendorRefId,
-      upiId: 'enpay1.skypal@fino',
-      merchantVpa: 'enpay1.skypal@fino',
-      "Commission Amount": 0,
-      "Settlement Status": "NA",
       txnNote: 'Default QR Code'
     };
 
-    console.log('🟡 Default QR Data:', defaultQRData);
+    console.log('🟡 QR Data to save:', qrData);
 
-    const defaultTransaction = new QrTransaction(defaultQRData);
-    console.log('🟡 QrTransaction model created');
-    
-    // Generate default QR code
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=0&tn=Default QR Code`;
+    // Test if we can create the model instance
+    let transaction;
+    try {
+      transaction = new QrTransaction(qrData);
+      console.log('✅ Model instance created');
+    } catch (modelError) {
+      console.error('❌ Model creation failed:', modelError);
+      return res.status(400).json({
+        code: 400,
+        success: false,
+        message: 'Model creation failed',
+        error: modelError.message
+      });
+    }
+
+    // Generate QR URLs
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=Merchant&am=0&tn=Default QR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
-    console.log('🟡 Generated QR URLs:', { paymentUrl, qrCodeUrl });
+    transaction.qrCode = qrCodeUrl;
+    transaction.paymentUrl = paymentUrl;
 
-    defaultTransaction.qrCode = qrCodeUrl;
-    defaultTransaction.paymentUrl = paymentUrl;
-    
-    console.log('🟡 Saving to database...');
-    await defaultTransaction.save();
-    console.log('✅ Default QR saved successfully');
+    console.log('🟡 Attempting to save...');
 
-    res.status(200).json({
+    // Try to save
+    await transaction.save();
+    console.log('✅ Save successful');
+
+    res.json({
       success: true,
-      transactionId: defaultTransaction.transactionId,
+      transactionId: transaction.transactionId,
       qrCode: qrCodeUrl,
       paymentUrl: paymentUrl,
-      isDefault: true,
       message: 'Default QR generated successfully'
     });
 
   } catch (error) {
-    console.error('❌ Generate Default QR Error:', error);
-    console.error('❌ Error stack:', error.stack);
+    console.error('❌ generateDefaultQR Error:', error);
+    
+    // Detailed error logging
+    console.error('❌ Error Details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      keyPattern: error.keyPattern,
+      keyValue: error.keyValue,
+      errors: error.errors
+    });
+
+    // Specific error handling
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.keys(error.errors).map(key => ({
+        field: key,
+        message: error.errors[key].message
+      }));
+      
+      return res.status(400).json({
+        code: 400,
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
+      });
+    }
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        code: 409,
+        success: false,
+        message: 'Duplicate transaction ID',
+        duplicateField: error.keyValue
+      });
+    }
+
+    // Generic error response
     res.status(500).json({
       code: 500,
+      success: false,
       message: 'Failed to generate default QR',
-      error: error.message
+      error: error.message,
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
     });
   }
 };
+
+
 
 // Get Transactions
 export const getTransactions = async (req, res) => {
@@ -305,6 +342,47 @@ export const handlePaymentWebhook = async (req, res) => {
       code: 500,
       message: "Webhook processing failed",
       error: error.message
+    });
+  }
+};
+
+
+// Add this to your transactionController.js
+export const debugDefaultQRSimple = async (req, res) => {
+  try {
+    console.log('🔍 DEBUG SIMPLE: Testing basic functionality');
+    
+    if (!req.user) {
+      return res.status(401).json({
+        code: 401,
+        message: 'No user object'
+      });
+    }
+
+    console.log('🔍 User:', {
+      id: req.user.id,
+      name: req.user.name,
+      email: req.user.email
+    });
+
+    // Test basic response
+    res.json({
+      success: true,
+      message: 'Debug endpoint working',
+      user: {
+        id: req.user.id,
+        name: req.user.name
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('🔍 Debug error:', error);
+    res.status(500).json({
+      code: 500,
+      message: 'Debug failed',
+      error: error.message,
+      stack: error.stack
     });
   }
 };
