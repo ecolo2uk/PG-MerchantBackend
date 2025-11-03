@@ -70,14 +70,14 @@ export const generateDynamicQR = async (req, res) => {
 // Generate Default QR
 export const generateDefaultQR = async (req, res) => {
   try {
-    const merchantId = req.user.id;
+    const merchantId = req.user.id; // FIX: Should be req.user.id, not req.merchant._id
     const merchantName = req.user.name || 'Merchant';
 
     // Generate unique IDs for default QR
     const transactionId = `DFT${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const txnRefId = generateTxnRefId();
+    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
     const merchantOrderId = `ORDER${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const vendorRefId = generateVendorRefId();
+    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
     const defaultQRData = {
       transactionId,
@@ -87,7 +87,7 @@ export const generateDefaultQR = async (req, res) => {
       status: 'GENERATED',
       txnRefId,
       merchantOrderId,
-      mid: req.user.mid || 'DEFAULT_MID',
+      mid: req.user.mid || 'DEFAULT_MID', // FIX: Should be req.user.mid
       "Vendor Ref ID": vendorRefId,
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino',
@@ -120,7 +120,7 @@ export const generateDefaultQR = async (req, res) => {
     res.status(500).json({
       code: 500,
       message: 'Failed to generate default QR',
-      error: error.message
+      error: error.message // Include actual error message
     });
   }
 };
