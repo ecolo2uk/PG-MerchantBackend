@@ -8,213 +8,103 @@ const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).sub
 const generateMid = () => `MID${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// ✅ WORKING: Generate Dynamic QR
+// In your transactionController.js
+
 export const generateDynamicQR = async (req, res) => {
   try {
-    console.log("🟡 generateDynamicQR - Processing request...");
-    
-    const { amount, txnNote = "Payment for Order" } = req.body;
-    const merchantId = req.user.id;
-    const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
-
-    // Validate amount
-    if (!amount || amount <= 0) {
-      return res.status(400).json({
-        code: 400,
-        message: "Valid amount is required"
-      });
-    }
-
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount)) {
-      return res.status(400).json({
-        code: 400,
-        message: "Amount must be a valid number"
-      });
-    }
-
-    console.log("✅ Amount validation passed:", parsedAmount);
+    const { amount, txnNote = 'Payment for Order' } = req.body;
+    const merchantId = req.merchant._id;
+    const merchantName = req.merchant.name;
 
     // Generate unique IDs
-    const transactionId = generateTransactionId();
-    const txnRefId = generateTxnRefId();
-    const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const mid = generateMid();
-    const vendorRefId = generateVendorRefId();
+    const transactionId = `TXN${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const merchantOrderId = `ORDER${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
 
-    // Create UPI URL and QR Code
-    const upiId = "enpay1.skypal@fino";
-    const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
-
-    // ⚠️ CRITICAL: Match MongoDB schema exactly - createdAt as String
     const transactionData = {
       transactionId,
-      merchantId: new mongoose.Types.ObjectId(merchantId),
+      merchantId,
       merchantName,
-      amount: parsedAmount,
-      status: "INITIATED",
-      mid,
-      "Vendor Ref ID": vendorRefId,
-      "Commission Amount": 0,
-      "Settlement Status": "Unsettled",
-      createdAt: new Date().toISOString(), // ⚠️ Convert to ISO string
-      // Optional fields
-      qrCode: qrCodeUrl,
-      paymentUrl,
+      amount: Number(amount),
       txnNote,
       txnRefId,
-      upiId,
-      merchantVpa: upiId,
-      merchantOrderId
+      merchantOrderId,
+      mid: req.merchant.mid || 'DEFAULT_MID', // Get from merchant info
+      "Vendor Ref ID": vendorRefId,
+      status: 'GENERATED',
+      // Include other required fields with appropriate values
+      upiId: 'enpay1.skypal@fino',
+      merchantVpa: 'enpay1.skypal@fino',
+      "Commission Amount": 0,
+      "Settlement Status": "NA"
     };
 
-    console.log("🟡 Transaction data prepared:", transactionData);
+    const transaction = new QrTransaction(transactionData);
+    await transaction.save();
 
-    // Save to main collection using create() for better error handling
-    let mainTransaction;
-    try {
-      mainTransaction = await Transaction.create(transactionData);
-      console.log("✅ SUCCESS: Saved to MAIN Transaction collection:", mainTransaction.transactionId);
-    } catch (saveError) {
-      console.error("❌ Error saving to MAIN Transaction:", saveError);
-      return res.status(500).json({
-        code: 500,
-        message: "Failed to save transaction",
-        error: saveError.message
-      });
-    }
+    // Your QR generation logic here...
 
-    // Optional: Save to QR collection
-    try {
-      await QrTransaction.create(transactionData);
-      console.log("✅ Also saved to QR collection");
-    } catch (qrError) {
-      console.log("⚠️ QR collection save failed:", qrError.message);
-    }
-
-    // Success response
-    res.json({
-      code: 200,
-      message: "QR generated successfully",
-      transaction: {
-        transactionId: mainTransaction.transactionId,
-        amount: mainTransaction.amount,
-        status: mainTransaction.status,
-        upiId: mainTransaction.upiId,
-        txnRefId: mainTransaction.txnRefId,
-        qrCode: mainTransaction.qrCode,
-        paymentUrl: mainTransaction.paymentUrl,
-        txnNote: mainTransaction.txnNote,
-        merchantName: mainTransaction.merchantName,
-        createdAt: mainTransaction.createdAt,
-        merchantOrderId: mainTransaction.merchantOrderId
-      },
-      qrCode: qrCodeUrl,
-      upiUrl: paymentUrl
+    res.status(200).json({
+      success: true,
+      transactionId: transaction.transactionId,
+      qrCode: generatedQRCode, // Your generated QR code
+      paymentUrl: generatedPaymentUrl // Your generated payment URL
     });
-
   } catch (error) {
-    console.error("❌ QR Generation Error:", error);
+    console.error('Generate QR Error:', error);
     res.status(500).json({
       code: 500,
-      message: "QR generation failed",
+      message: 'Failed to save transaction',
       error: error.message
     });
   }
 };
 
-// ✅ WORKING: Generate Default QR
 export const generateDefaultQR = async (req, res) => {
   try {
-    const merchantId = req.user.id;
-    const merchantName = `${req.user.firstname || ''} ${req.user.lastname || ''}`.trim() || "SKYPAL SYSTEM PRIVATE LIMITED";
+    const merchantId = req.merchant._id;
+    const merchantName = req.merchant.name;
 
-    console.log("🟡 Default QR Request from:", merchantName);
+    // Generate unique IDs for default QR too
+    const transactionId = `DFT${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const merchantOrderId = `ORDER${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
 
-    // Generate unique IDs
-    const transactionId = generateTransactionId();
-    const txnRefId = generateTxnRefId();
-    const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const mid = generateMid();
-    const vendorRefId = generateVendorRefId();
-
-    // Create UPI URL without amount
-    const upiId = "enpay1.skypal@fino";
-    const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
-
-    // ⚠️ CRITICAL: Match MongoDB schema exactly
-    const transactionData = {
+    const defaultQRData = {
       transactionId,
-      merchantId: new mongoose.Types.ObjectId(merchantId),
+      merchantId,
       merchantName,
-      amount: 0,
-      status: "INITIATED",
-      mid,
-      "Vendor Ref ID": vendorRefId,
-      "Commission Amount": 0,
-      "Settlement Status": "Unsettled",
-      createdAt: new Date().toISOString(), // ⚠️ Convert to ISO string
-      // Optional fields
-      qrCode: qrCodeUrl,
-      paymentUrl,
-      txnNote: "Default QR Payment",
+      amount: 0, // Default QR has zero amount
+      status: 'GENERATED',
       txnRefId,
-      upiId,
-      merchantVpa: upiId,
-      merchantOrderId
+      merchantOrderId,
+      mid: req.merchant.mid || 'DEFAULT_MID',
+      "Vendor Ref ID": vendorRefId,
+      upiId: 'enpay1.skypal@fino',
+      merchantVpa: 'enpay1.skypal@fino',
+      "Commission Amount": 0,
+      "Settlement Status": "NA",
+      txnNote: 'Default QR Code'
     };
 
-    console.log("🟡 Default QR transaction data:", transactionData);
+    const defaultTransaction = new QrTransaction(defaultQRData);
+    await defaultTransaction.save();
 
-    // Save to main collection
-    let mainTransaction;
-    try {
-      mainTransaction = await Transaction.create(transactionData);
-      console.log("✅ SUCCESS: Default QR saved to MAIN Transaction collection:", mainTransaction.transactionId);
-    } catch (saveError) {
-      console.error("❌ Error saving default QR:", saveError);
-      return res.status(500).json({
-        code: 500,
-        message: "Failed to save default QR",
-        error: saveError.message
-      });
-    }
+    // Your default QR generation logic here...
 
-    // Optional: Save to QR collection
-    try {
-      await QrTransaction.create(transactionData);
-      console.log("✅ Also saved to QR collection");
-    } catch (qrError) {
-      console.log("⚠️ QR collection save failed:", qrError.message);
-    }
-
-    res.json({
-      code: 200,
-      message: "Default QR generated successfully",
-      transaction: {
-        transactionId: mainTransaction.transactionId,
-        amount: mainTransaction.amount,
-        status: mainTransaction.status,
-        upiId: mainTransaction.upiId,
-        txnRefId: mainTransaction.txnRefId,
-        qrCode: mainTransaction.qrCode,
-        paymentUrl: mainTransaction.paymentUrl,
-        txnNote: mainTransaction.txnNote,
-        merchantName: mainTransaction.merchantName,
-        createdAt: mainTransaction.createdAt,
-        merchantOrderId: mainTransaction.merchantOrderId
-      },
-      qrCode: qrCodeUrl,
-      upiUrl: paymentUrl
+    res.status(200).json({
+      success: true,
+      transactionId: defaultTransaction.transactionId,
+      qrCode: defaultQRCode, // Your generated default QR code
+      isDefault: true
     });
-
   } catch (error) {
-    console.error("❌ Default QR Error:", error);
+    console.error('Generate Default QR Error:', error);
     res.status(500).json({
       code: 500,
-      message: "Default QR generation failed",
+      message: 'Failed to save default QR',
       error: error.message
     });
   }
