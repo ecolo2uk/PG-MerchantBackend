@@ -1,3 +1,4 @@
+// routes/transactionRoutes.js
 import express from "express";
 import {
   getTransactions,
@@ -7,37 +8,26 @@ import {
   handlePaymentWebhook,
   getTransactionDetails,
   testConnection,
-  debugDefaultQRSimple,
-  testDatabaseConnection,
-  // testSchemaValidation,
-  downloadReceipt,
-  initiateRefund,
-  simulatePaymentWebhook
+  
+  testDatabaseConnection,testSchemaValidation
+
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
-import { validateTransactionData } from "../middleware/validationMiddleware.js";
-
+import  { validateTransactionData } from "../middleware/validationMiddleware.js";
 const router = express.Router();
+// All routes protected with merchant authentication
 
-// Debug routes
-router.get('/debug-simple', authenticateMerchant, debugDefaultQRSimple);
-// router.get('/test-schema', authenticateMerchant, testSchemaValidation);
+// In your routes file, add:
+router.get('/test-schema', authenticateMerchant, testSchemaValidation);
 router.get('/test-db', authenticateMerchant, testDatabaseConnection);
-
-// Main routes
 router.get("/", authenticateMerchant, getTransactions);
 router.post("/generate-qr", authenticateMerchant, validateTransactionData, generateDynamicQR);
-router.post("/default-qr", authenticateMerchant, generateDefaultQR);
+router.post("/default-qr", authenticateMerchant,  generateDefaultQR);
 router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatus);
 router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
-router.get("/test", authenticateMerchant, testConnection);
+router.get("/test", authenticateMerchant, testConnection); // Add test endpoint
 
-// Receipt and Refund routes
-router.get("/receipt/:transactionId", authenticateMerchant, downloadReceipt);
-router.post("/refund/:transactionId", authenticateMerchant, initiateRefund);
-
-// Webhook and simulation routes
+// Webhook doesn't need authentication
 router.post("/webhook", handlePaymentWebhook);
-router.post("/simulate-webhook", simulatePaymentWebhook);
 
 export default router;

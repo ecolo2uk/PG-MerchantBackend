@@ -68,44 +68,7 @@ export const generateDynamicQR = async (req, res) => {
 };
 
 
-export const testDatabaseConnection = async (req, res) => {
-  try {
-    console.log('🔍 Testing database connection...');
-    
-    // Test count
-    const count = await QrTransaction.countDocuments();
-    
-    // Test simple save
-    const testDoc = new QrTransaction({
-      transactionId: `DBTEST${Date.now()}`,
-      merchantId: req.user.id,
-      merchantName: 'DB Test',
-      amount: 0,
-      status: 'GENERATED'
-    });
-    
-    await testDoc.save();
-    
-    // Clean up
-    await QrTransaction.deleteOne({ transactionId: testDoc.transactionId });
-    
-    res.json({
-      success: true,
-      message: 'Database connection working',
-      count: count
-    });
-    
-  } catch (error) {
-    console.error('❌ Database test error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database test failed',
-      error: error.message
-    });
-  }
-};
 
-// Generate Default QR - ULTRA SIMPLIFIED
 export const generateDefaultQR = async (req, res) => {
   try {
     console.log('🔵 generateDefaultQR ULTRA SIMPLIFIED - Start');
@@ -213,6 +176,34 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
+// Add this test function to your TransactionList.jsx
+const testDebugEndpoint = async () => {
+  try {
+    console.log('🧪 Testing debug endpoint...');
+    
+    const response = await fetch('https://pg-merchant-backend.vercel.app/api/transactions/debug-simple', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    const data = await response.json();
+    console.log('🧪 Debug endpoint response:', data);
+    return data;
+  } catch (error) {
+    console.error('🧪 Debug test failed:', error);
+    return { error: error.message };
+  }
+};
+
+// Call this function in your useEffect or add a test button
+useEffect(() => {
+  // Test the debug endpoint when component loads
+  testDebugEndpoint();
+}, []);
+
 // Get Transactions
 export const getTransactions = async (req, res) => {
   try {
@@ -239,7 +230,7 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// Check Transaction Status
+// Other functions remain the same...
 export const checkTransactionStatus = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -282,7 +273,9 @@ export const checkTransactionStatus = async (req, res) => {
   }
 };
 
-// Test Connection
+// Keep other functions as needed...
+
+// ✅ Add this debug endpoint to test the connection
 export const testConnection = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -307,7 +300,7 @@ export const testConnection = async (req, res) => {
   }
 };
 
-// Handle Payment Webhook
+// Keep other functions as needed...
 export const handlePaymentWebhook = async (req, res) => {
   try {
     const {
@@ -369,7 +362,8 @@ export const handlePaymentWebhook = async (req, res) => {
   }
 };
 
-// Debug Simple Endpoint
+
+// Add this to your transactionController.js
 export const debugDefaultQRSimple = async (req, res) => {
   try {
     console.log('🔍 DEBUG SIMPLE: Testing basic functionality');
@@ -409,7 +403,7 @@ export const debugDefaultQRSimple = async (req, res) => {
   }
 };
 
-// Get Transaction Details
+
 export const getTransactionDetails = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -432,7 +426,7 @@ export const getTransactionDetails = async (req, res) => {
     res.json({
       code: 200,
       transaction,
-      collection: "transactions"
+      collection: "transactions" // 🔥 Confirm from main collection
     });
   } catch (error) {
     console.error("❌ Get Details Error:", error);
@@ -443,7 +437,113 @@ export const getTransactionDetails = async (req, res) => {
   }
 };
 
-// Download Receipt
+// Test endpoint to verify main collection is working
+export const testMainCollection = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    // Count documents in both collections
+    const mainCount = await Transaction.countDocuments({ merchantId });
+    const qrCount = await QrTransaction.countDocuments({ merchantId });
+    
+    // Get recent transactions from both
+    const mainTransactions = await Transaction.find({ merchantId }).limit(3).sort({ createdAt: -1 });
+    const qrTransactions = await QrTransaction.find({ merchantId }).limit(3).sort({ createdAt: -1 });
+
+    res.json({
+      code: 200,
+      message: "Collection status check",
+      counts: {
+        transactions: mainCount,
+        qr_transactions: qrCount
+      },
+      recent: {
+        transactions: mainTransactions.map(t => ({
+          transactionId: t.transactionId,
+          amount: t.amount,
+          status: t.status,
+          createdAt: t.createdAt
+        })),
+        qr_transactions: qrTransactions.map(t => ({
+          transactionId: t.transactionId,
+          amount: t.amount,
+          status: t.status,
+          createdAt: t.createdAt
+        }))
+      }
+    });
+    
+  } catch (error) {
+    console.error("❌ Test error:", error);
+    res.status(500).json({
+      code: 500,
+      error: error.message
+    });
+  }
+};
+
+// Manual sync from QR to Main (if needed)
+export const syncQRToMain = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    console.log("🔄 Manual sync: QR to Main for merchant:", merchantId);
+    
+    const qrTransactions = await QrTransaction.find({ merchantId });
+    let syncedCount = 0;
+    
+    for (const qrTxn of qrTransactions) {
+      try {
+        const existing = await Transaction.findOne({ transactionId: qrTxn.transactionId });
+        
+        if (!existing) {
+          const mainTxn = new Transaction({
+            transactionId: qrTxn.transactionId,
+            merchantId: qrTxn.merchantId,
+            merchantName: qrTxn.merchantName,
+            amount: qrTxn.amount,
+            status: qrTxn.status,
+            qrCode: qrTxn.qrCode,
+            paymentUrl: qrTxn.paymentUrl,
+            txnNote: qrTxn.txnNote,
+            txnRefId: qrTxn.txnRefId,
+            upiId: qrTxn.upiId,
+            merchantVpa: qrTxn.merchantVpa,
+            merchantOrderId: qrTxn.merchantOrderId,
+            mid: qrTxn.mid,
+            "Vendor Ref ID": qrTxn["Vendor Ref ID"],
+            "Commission Amount": qrTxn["Commission Amount"],
+            "Settlement Status": qrTxn["Settlement Status"],
+            createdAt: qrTxn.createdAt
+          });
+          
+          await mainTxn.save();
+          syncedCount++;
+          console.log(`✅ Synced: ${qrTxn.transactionId}`);
+        }
+      } catch (error) {
+        console.error(`❌ Failed to sync: ${qrTxn.transactionId}`, error);
+      }
+    }
+    
+    res.json({
+      code: 200,
+      message: "Manual sync completed",
+      synced: syncedCount,
+      total: qrTransactions.length
+    });
+    
+  } catch (error) {
+    console.error("❌ Manual sync error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Manual sync failed",
+      error: error.message
+    });
+  }
+};
+
+// Keep other functions as needed...
 export const downloadReceipt = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -498,7 +598,213 @@ export const downloadReceipt = async (req, res) => {
   }
 };
 
-// Initiate Refund
+
+// Manual sync endpoint for existing QR transactions to MAIN
+export const syncAllQRToMain = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    console.log("🔄 Manual sync: QR to MAIN for merchant:", merchantId);
+    
+    // Find all QR transactions for this merchant
+    const qrTransactions = await QrTransaction.find({ merchantId });
+    
+    let syncedCount = 0;
+    let errorCount = 0;
+    
+    for (const qrTxn of qrTransactions) {
+      try {
+        // Check if already exists in main collection
+        const existing = await Transaction.findOne({ transactionId: qrTxn.transactionId });
+        
+        if (!existing) {
+          await syncQrTransactionToMain(qrTxn, {});
+          syncedCount++;
+          console.log(`✅ Synced: ${qrTxn.transactionId}`);
+        }
+      } catch (error) {
+        console.error(`❌ Failed to sync: ${qrTxn.transactionId}`, error);
+        errorCount++;
+      }
+    }
+    
+    res.json({
+      code: 200,
+      message: "Manual sync completed",
+      results: {
+        totalQRTransactions: qrTransactions.length,
+        syncedToMain: syncedCount,
+        alreadyExists: qrTransactions.length - syncedCount - errorCount,
+        errors: errorCount
+      }
+    });
+    
+  } catch (error) {
+    console.error("❌ Manual sync error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Manual sync failed",
+      error: error.message
+    });
+  }
+};
+
+// Check sync status between collections
+export const checkSyncStatus = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    // QR Transactions
+    const qrTransactions = await QrTransaction.find({ merchantId })
+      .sort({ createdAt: -1 })
+      .limit(10);
+    
+    // Main Transactions  
+    const mainTransactions = await Transaction.find({ merchantId })
+      .sort({ createdAt: -1 })
+      .limit(10);
+    
+    // Sync status check
+    const syncStatus = await Promise.all(
+      qrTransactions.map(async (qrTxn) => {
+        const mainTxn = await Transaction.findOne({ 
+          transactionId: qrTxn.transactionId 
+        });
+        return {
+          transactionId: qrTxn.transactionId,
+          qrExists: true,
+          mainExists: !!mainTxn,
+          status: qrTxn.status,
+          amount: qrTxn.amount,
+          createdAt: qrTxn.createdAt
+        };
+      })
+    );
+    
+    res.json({
+      code: 200,
+      syncStatus: {
+        totalQR: qrTransactions.length,
+        totalMain: mainTransactions.length,
+        transactions: syncStatus
+      }
+    });
+    
+  } catch (error) {
+    console.error("❌ Sync check error:", error);
+    res.status(500).json({
+      code: 500,
+      message: "Sync check failed",
+      error: error.message
+    });
+  }
+};
+
+// Test endpoint to verify data is going to MAIN collection
+// export const testMainCollection = async (req, res) => {
+//   try {
+//     const merchantId = req.user.id;
+    
+//     const testTransaction = {
+//       transactionId: `TEST${Date.now()}`,
+//       merchantId: new mongoose.Types.ObjectId(merchantId),
+//       merchantName: "Test Merchant",
+//       amount: 100,
+//       status: "INITIATED",
+//       mid: "TESTMID",
+//       "Vendor Ref ID": "TESTVENDOR",
+//       "Commission Amount": 0,
+//       "Settlement Status": "Unsettled"
+//     };
+
+//     console.log("🧪 Testing MAIN collection save...");
+    
+//     const mainTxn = new Transaction(testTransaction);
+//     await mainTxn.save();
+    
+//     // Verify it's saved
+//     const verified = await Transaction.findOne({ transactionId: testTransaction.transactionId });
+    
+//     res.json({
+//       code: 200,
+//       message: "Test completed",
+//       testData: testTransaction,
+//       saved: !!verified,
+//       verified: verified ? {
+//         transactionId: verified.transactionId,
+//         collection: "transactions"
+//       } : null
+//     });
+    
+//   } catch (error) {
+//     console.error("❌ Test error:", error);
+//     res.status(500).json({
+//       code: 500,
+//       error: error.message
+//     });
+//   }
+// };
+
+// Keep other existing functions (downloadReceipt, initiateRefund, etc.) as they are
+// but ensure they only work with Transaction model (MAIN collection)
+
+// export const downloadReceipt = async (req, res) => {
+//   try {
+//     const { transactionId } = req.params;
+//     const merchantId = req.user.id;
+
+//     console.log("🟡 Download receipt from MAIN collection:", { transactionId, merchantId });
+
+//     const transaction = await Transaction.findOne({ 
+//       transactionId, 
+//       merchantId: new mongoose.Types.ObjectId(merchantId)
+//     });
+
+//     if (!transaction) {
+//       return res.status(404).json({ 
+//         code: 404,
+//         message: "Transaction not found in MAIN collection" 
+//       });
+//     }
+
+//     if (transaction.status !== "SUCCESS") {
+//       return res.status(400).json({ 
+//         code: 400,
+//         message: "Receipt only available for successful transactions" 
+//       });
+//     }
+
+//     const receiptData = {
+//       transactionId: transaction.transactionId,
+//       merchantOrderId: transaction.merchantOrderId,
+//       amount: transaction.amount,
+//       date: transaction.createdAt,
+//       merchantName: transaction.merchantName,
+//       status: transaction.status,
+//       upiId: transaction.upiId,
+//       customerName: transaction["Customer Name"] || 'N/A',
+//       customerVpa: transaction["Customer VPA"] || 'N/A',
+//       commissionAmount: transaction["Commission Amount"],
+//       settlementStatus: transaction["Settlement Status"],
+//       collection: "main"
+//     };
+
+//     res.json({
+//       code: 200,
+//       message: "Receipt generated successfully",
+//       receipt: receiptData
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Download Receipt Error:", error);
+//     res.status(500).json({ 
+//       code: 500,
+//       message: "Failed to download receipt",
+//       error: error.message 
+//     });
+//   }
+// };
+
 export const initiateRefund = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -560,7 +866,7 @@ export const initiateRefund = async (req, res) => {
   }
 };
 
-// Simulate Payment Webhook
+// Add to routes
 export const simulatePaymentWebhook = async (req, res) => {
   try {
     const { transactionId, merchantOrderId, txnRefId, amount = 100, status = "SUCCESS" } = req.body;
