@@ -4,10 +4,10 @@ import mongoose from 'mongoose';
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-const generateMid = () => `MID${Date.now()}`;
-const generateVendorRefId = () => `VENDORREF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+const generateMid = () => `MID${Date.now()}${Math.floor(Math.random() * 1000)}`;
+const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// 🔥 MAIN FIX: Direct save to Transaction collection
+// 🔥 FIXED: Proper field generation and validation
 export const generateDynamicQR = async (req, res) => {
   try {
     console.log("🟡 generateDynamicQR - Processing request...");
@@ -72,7 +72,7 @@ export const generateDynamicQR = async (req, res) => {
 
     console.log("✅ Amount validation passed:", parsedAmount);
 
-    // Generate unique IDs
+    // Generate unique IDs with proper format
     const transactionId = generateTransactionId();
     const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -84,7 +84,7 @@ export const generateDynamicQR = async (req, res) => {
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // 🔥 CRITICAL: Data for MAIN TRANSACTION collection only
+    // 🔥 CRITICAL FIX: Ensure all required fields are present
     const transactionData = {
       transactionId,
       merchantId: new mongoose.Types.ObjectId(merchantId),
@@ -98,8 +98,8 @@ export const generateDynamicQR = async (req, res) => {
       upiId,
       merchantVpa: upiId,
       merchantOrderId,
-      mid,
-      "Vendor Ref ID": vendorRefId,
+      mid, // ✅ Now properly generated
+      "Vendor Ref ID": vendorRefId, // ✅ Now properly generated
       "Commission Amount": 0,
       "Settlement Status": "Unsettled",
       createdAt: new Date()
@@ -107,7 +107,7 @@ export const generateDynamicQR = async (req, res) => {
 
     console.log("🟡 Saving to MAIN Transaction collection:", transactionData);
 
-    // 🔥 ONLY SAVE TO MAIN TRANSACTION COLLECTION
+    // 🔥 VALIDATION: Create instance and validate
     let mainTransaction;
     try {
       mainTransaction = new Transaction(transactionData);
@@ -118,7 +118,7 @@ export const generateDynamicQR = async (req, res) => {
         console.error("❌ Transaction Validation Error:", validationError.errors);
         return res.status(400).json({
           code: 400,
-          message: `Transaction validation failed: ${JSON.stringify(validationError.errors)}`
+          message: `Transaction validation failed: ${Object.keys(validationError.errors).join(', ')}`
         });
       }
       
@@ -130,7 +130,8 @@ export const generateDynamicQR = async (req, res) => {
       return res.status(500).json({
         code: 500,
         message: "Failed to save transaction to main collection",
-        error: saveError.message
+        error: saveError.message,
+        details: saveError.errors || 'No additional details'
       });
     }
 
@@ -163,7 +164,7 @@ export const generateDynamicQR = async (req, res) => {
       qrCode: qrCodeUrl,
       upiUrl: paymentUrl,
       enpayInitiated: false,
-      savedTo: "transactions" // 🔥 Confirm it's saved to main collection
+      savedTo: "transactions"
     });
 
   } catch (error) {
@@ -183,17 +184,19 @@ export const generateDefaultQR = async (req, res) => {
 
     console.log("🟡 Default QR Request from:", merchantName);
 
-    // Generate unique IDs
+    // Generate unique IDs with proper format
     const transactionId = generateTransactionId();
     const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const mid = generateMid();
+    const vendorRefId = generateVendorRefId();
 
     // Create UPI URL without amount
     const upiId = "enpay1.skypal@fino";
     const paymentUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Payment&tr=${txnRefId}&cu=INR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Data for MAIN TRANSACTION collection
+    // 🔥 FIXED: Data for MAIN TRANSACTION collection with all required fields
     const transactionData = {
       transactionId: transactionId,
       merchantId: new mongoose.Types.ObjectId(merchantId),
@@ -207,8 +210,8 @@ export const generateDefaultQR = async (req, res) => {
       upiId: upiId,
       merchantVpa: upiId,
       merchantOrderId: merchantOrderId,
-      mid: generateMid(),
-      "Vendor Ref ID": generateVendorRefId(),
+      mid: mid, // ✅ Now properly generated
+      "Vendor Ref ID": vendorRefId, // ✅ Now properly generated
       "Commission Amount": 0,
       "Settlement Status": "Unsettled",
       createdAt: new Date()
@@ -227,7 +230,7 @@ export const generateDefaultQR = async (req, res) => {
         console.error("❌ Transaction Validation Error:", validationError.errors);
         return res.status(400).json({
           code: 400,
-          message: `Transaction validation failed: ${JSON.stringify(validationError.errors)}`
+          message: `Transaction validation failed: ${Object.keys(validationError.errors).join(', ')}`
         });
       }
       
@@ -239,7 +242,8 @@ export const generateDefaultQR = async (req, res) => {
       return res.status(500).json({
         code: 500,
         message: "Failed to save default QR to main collection",
-        error: saveError.message
+        error: saveError.message,
+        details: saveError.errors || 'No additional details'
       });
     }
 
@@ -271,7 +275,7 @@ export const generateDefaultQR = async (req, res) => {
       qrCode: qrCodeUrl,
       upiUrl: paymentUrl,
       enpayInitiated: false,
-      savedTo: "transactions" // 🔥 Confirm it's saved to main collection
+      savedTo: "transactions"
     });
 
   } catch (error) {
@@ -284,12 +288,56 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
+// Add this debug endpoint to check schema validation
+export const debugSchema = async (req, res) => {
+  try {
+    const sampleData = {
+      transactionId: generateTransactionId(),
+      merchantId: new mongoose.Types.ObjectId(req.user.id),
+      merchantName: "Test Merchant",
+      amount: 100,
+      status: "INITIATED",
+      mid: generateMid(),
+      "Vendor Ref ID": generateVendorRefId(),
+      "Commission Amount": 0,
+      "Settlement Status": "Unsettled",
+      createdAt: new Date()
+    };
+
+    console.log("🧪 Testing schema with:", sampleData);
+
+    const testTransaction = new Transaction(sampleData);
+    const validationError = testTransaction.validateSync();
+    
+    if (validationError) {
+      return res.json({
+        code: 400,
+        message: "Schema validation failed",
+        errors: validationError.errors
+      });
+    }
+
+    res.json({
+      code: 200,
+      message: "Schema validation passed",
+      sampleData: sampleData
+    });
+
+  } catch (error) {
+    console.error("❌ Debug error:", error);
+    res.status(500).json({
+      code: 500,
+      error: error.message
+    });
+  }
+};
+
+// Keep all other functions the same...
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
     console.log("🟡 Fetching transactions from MAIN collection for merchant:", merchantId);
 
-    // Fetch ONLY from main Transaction collection
     const transactions = await Transaction.find({ 
       merchantId: new mongoose.Types.ObjectId(merchantId) 
     })
@@ -309,6 +357,8 @@ export const getTransactions = async (req, res) => {
     });
   }
 };
+
+// ... keep all other existing functions (handlePaymentWebhook, checkTransactionStatus, etc.)
 
 export const handlePaymentWebhook = async (req, res) => {
   try {
