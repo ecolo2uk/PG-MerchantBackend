@@ -1,4 +1,4 @@
-import { Transaction } from '../models/Transaction.js';
+import  Transaction  from '../models/Transaction.js';
 import QrTransaction from '../models/QrTransaction.js';
 import mongoose from 'mongoose';
 

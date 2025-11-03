@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 
-// MAIN Transaction Schema (for completed transactions)
+// SINGLE unified transaction schema
 const transactionSchema = new mongoose.Schema({
+  // Required fields from your schema
   _id: {
     type: mongoose.Schema.Types.ObjectId,
     auto: true
@@ -17,7 +18,8 @@ const transactionSchema = new mongoose.Schema({
   },
   createdAt: {
     type: String,
-    required: true
+    required: true,
+    default: () => new Date().toISOString()
   },
   merchantId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -29,18 +31,19 @@ const transactionSchema = new mongoose.Schema({
   },
   mid: {
     type: String,
-    required: true
+    required: true,
+    default: 'DEFAULT_MID'
   },
   "Settlement Status": {
     type: String,
     required: true,
-    default: "Unsettled"
+    default: "NA"
   },
   status: {
     type: String,
     required: true,
-    enum: ['INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'],
-    default: 'INITIATED'
+    enum: ['GENERATED', 'INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'],
+    default: 'GENERATED'
   },
   transactionId: {
     type: String,
@@ -51,67 +54,53 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  // Optional fields
-  "Customer Contact No": {
-    type: mongoose.Schema.Types.Mixed,
-    required: false
+  
+  // QR specific fields
+  qrCode: {
+    type: String
   },
-  "Customer Name": {
-    type: String,
-    required: false
-  },
-  "Customer VPA": {
-    type: String,
-    required: false
-  },
-  "Failure Reasons": {
-    type: String,
-    required: false
-  },
-  "Vendor Txn ID": {
-    type: String,
-    required: false
-  },
-  merchantOrderId: {
-    type: String,
-    required: false
+  paymentUrl: {
+    type: String
   },
   txnNote: {
     type: String,
-    required: false
+    default: 'Payment for Order'
   },
   txnRefId: {
-    type: String,
-    required: false
+    type: String
   },
   upiId: {
     type: String,
-    required: false
+    default: 'enpay1.skypal@fino'
   },
   merchantVpa: {
     type: String,
-    required: false
+    default: 'enpay1.skypal@fino'
   },
-  qrCode: {
-    type: String,
-    required: false
+  merchantOrderId: {
+    type: String
   },
-  paymentUrl: {
-    type: String,
-    required: false
+  
+  // Customer fields (optional)
+  "Customer Contact No": {
+    type: mongoose.Schema.Types.Mixed
   },
-  enpayTxnId: {
-    type: String,
-    required: false
+  "Customer Name": {
+    type: String
   },
-  updatedAt: {
-    type: String,
-    required: false
+  "Customer VPA": {
+    type: String
+  },
+  "Failure Reasons": {
+    type: String
+  },
+  "Vendor Txn ID": {
+    type: String
   }
+
 }, {
-  collection: 'transactions',
-  timestamps: false
+  collection: 'transactions', // ✅ SINGLE collection
+  timestamps: true
 });
 
-// Export ONLY Transaction model
-export const Transaction = mongoose.model('Transaction', transactionSchema);
+export default mongoose.model('Transaction', transactionSchema);
