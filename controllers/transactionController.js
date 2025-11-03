@@ -1,6 +1,5 @@
 // controllers/transactionController.js
-import Transaction from "../models/Transaction.js";
-import QrTransaction from "../models/QrTransaction.js";
+import { Transaction, QrTransaction } from "../models/Transaction.js";
 import mongoose from 'mongoose';
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
