@@ -1,5 +1,4 @@
-import Transaction from '../models/Transaction.js';
-import User from '../models/User.js';
+import { Transaction } from '../models/Transaction.js';import User from '../models/User.js';
 import mongoose from 'mongoose';
 
 const getDateRange = (filter, startDate, endDate) => {

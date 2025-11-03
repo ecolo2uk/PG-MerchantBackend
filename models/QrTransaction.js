@@ -1,3 +1,5 @@
+import mongoose from 'mongoose';
+
 const qrTransactionSchema = new mongoose.Schema({
   transactionId: {
     type: String,
@@ -33,7 +35,6 @@ const qrTransactionSchema = new mongoose.Schema({
     type: String,
     default: 'Payment for Order'
   },
-  // Make these optional with default values
   txnRefId: {
     type: String,
     default: function() {
@@ -56,7 +57,7 @@ const qrTransactionSchema = new mongoose.Schema({
   },
   mid: {
     type: String,
-    default: 'DEFAULT_MID' // Replace with actual default MID
+    default: 'DEFAULT_MID'
   },
   "Vendor Ref ID": {
     type: String,
@@ -96,6 +97,8 @@ const qrTransactionSchema = new mongoose.Schema({
     type: String
   }
 }, {
-  collection: 'transactions',
+  collection: 'qr_transactions',
   timestamps: true
 });
+
+export default mongoose.model('QrTransaction', qrTransactionSchema);

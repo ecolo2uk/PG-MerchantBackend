@@ -1,25 +1,23 @@
-// controllers/transactionController.js
-import { Transaction, QrTransaction } from "../models/Transaction.js";
+import { Transaction } from '../models/Transaction.js';
+import QrTransaction from '../models/QrTransaction.js';
 import mongoose from 'mongoose';
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-const generateMid = () => `MID${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// In your transactionController.js
-
+// Generate Dynamic QR
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = 'Payment for Order' } = req.body;
-    const merchantId = req.merchant._id;
-    const merchantName = req.merchant.name;
+    const merchantId = req.user.id;
+    const merchantName = req.user.name || 'Merchant';
 
     // Generate unique IDs
-    const transactionId = `TXN${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const transactionId = generateTransactionId();
+    const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const vendorRefId = generateVendorRefId();
 
     const transactionData = {
       transactionId,
@@ -29,10 +27,9 @@ export const generateDynamicQR = async (req, res) => {
       txnNote,
       txnRefId,
       merchantOrderId,
-      mid: req.merchant.mid || 'DEFAULT_MID', // Get from merchant info
+      mid: req.user.mid || 'DEFAULT_MID',
       "Vendor Ref ID": vendorRefId,
       status: 'GENERATED',
-      // Include other required fields with appropriate values
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino',
       "Commission Amount": 0,
@@ -42,44 +39,55 @@ export const generateDynamicQR = async (req, res) => {
     const transaction = new QrTransaction(transactionData);
     await transaction.save();
 
-    // Your QR generation logic here...
+    // Generate QR code URL
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=Merchant&am=${amount}&tn=${txnNote}&tr=${transactionId}`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
+
+    // Update transaction with QR data
+    transaction.qrCode = qrCodeUrl;
+    transaction.paymentUrl = paymentUrl;
+    await transaction.save();
 
     res.status(200).json({
       success: true,
       transactionId: transaction.transactionId,
-      qrCode: generatedQRCode, // Your generated QR code
-      paymentUrl: generatedPaymentUrl // Your generated payment URL
+      qrCode: qrCodeUrl,
+      paymentUrl: paymentUrl,
+      amount: amount,
+      message: 'QR generated successfully'
     });
+
   } catch (error) {
     console.error('Generate QR Error:', error);
     res.status(500).json({
       code: 500,
-      message: 'Failed to save transaction',
+      message: 'Failed to generate QR',
       error: error.message
     });
   }
 };
 
+// Generate Default QR
 export const generateDefaultQR = async (req, res) => {
   try {
-    const merchantId = req.merchant._id;
-    const merchantName = req.merchant.name;
+    const merchantId = req.user.id;
+    const merchantName = req.user.name || 'Merchant';
 
-    // Generate unique IDs for default QR too
+    // Generate unique IDs for default QR
     const transactionId = `DFT${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const txnRefId = generateTxnRefId();
     const merchantOrderId = `ORDER${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
-    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+    const vendorRefId = generateVendorRefId();
 
     const defaultQRData = {
       transactionId,
       merchantId,
       merchantName,
-      amount: 0, // Default QR has zero amount
+      amount: 0,
       status: 'GENERATED',
       txnRefId,
       merchantOrderId,
-      mid: req.merchant.mid || 'DEFAULT_MID',
+      mid: req.user.mid || 'DEFAULT_MID',
       "Vendor Ref ID": vendorRefId,
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino',
@@ -89,27 +97,35 @@ export const generateDefaultQR = async (req, res) => {
     };
 
     const defaultTransaction = new QrTransaction(defaultQRData);
-    await defaultTransaction.save();
+    
+    // Generate default QR code
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=Merchant&am=0&tn=Default QR Code`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
-    // Your default QR generation logic here...
+    defaultTransaction.qrCode = qrCodeUrl;
+    defaultTransaction.paymentUrl = paymentUrl;
+    await defaultTransaction.save();
 
     res.status(200).json({
       success: true,
       transactionId: defaultTransaction.transactionId,
-      qrCode: defaultQRCode, // Your generated default QR code
-      isDefault: true
+      qrCode: qrCodeUrl,
+      paymentUrl: paymentUrl,
+      isDefault: true,
+      message: 'Default QR generated successfully'
     });
+
   } catch (error) {
     console.error('Generate Default QR Error:', error);
     res.status(500).json({
       code: 500,
-      message: 'Failed to save default QR',
+      message: 'Failed to generate default QR',
       error: error.message
     });
   }
 };
 
-// ✅ WORKING: Get Transactions
+// Get Transactions
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -135,7 +151,7 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// ✅ WORKING: Check Transaction Status
+// Other functions remain the same...
 export const checkTransactionStatus = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -177,6 +193,8 @@ export const checkTransactionStatus = async (req, res) => {
     });
   }
 };
+
+// Keep other functions as needed...
 
 // ✅ Add this debug endpoint to test the connection
 export const testConnection = async (req, res) => {
