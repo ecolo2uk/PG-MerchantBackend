@@ -1,3 +1,4 @@
+// models/QrTransaction.js
 import mongoose from 'mongoose';
 
 const qrTransactionSchema = new mongoose.Schema({
@@ -97,7 +98,7 @@ const qrTransactionSchema = new mongoose.Schema({
     type: String
   }
 }, {
-  collection: 'transactions',
+  collection: 'qr_transactions',
   timestamps: true
 });
 

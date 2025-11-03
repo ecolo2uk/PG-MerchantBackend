@@ -68,16 +68,33 @@ export const generateDynamicQR = async (req, res) => {
 };
 
 // Generate Default QR
+// Generate Default QR
 export const generateDefaultQR = async (req, res) => {
   try {
-    const merchantId = req.user.id; // FIX: Should be req.user.id, not req.merchant._id
-    const merchantName = req.user.name || 'Merchant';
+    console.log('🟡 generateDefaultQR called - Start');
+    console.log('🟡 User object:', req.user);
+    
+    if (!req.user) {
+      console.error('❌ No user object found in request');
+      return res.status(401).json({
+        code: 401,
+        message: 'User not authenticated'
+      });
+    }
+
+    const merchantId = req.user.id;
+    const merchantName = req.user.name || req.user.firstname || 'Merchant';
+
+    console.log('🟡 Merchant ID:', merchantId);
+    console.log('🟡 Merchant Name:', merchantName);
 
     // Generate unique IDs for default QR
     const transactionId = `DFT${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
     const txnRefId = `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
     const merchantOrderId = `ORDER${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
     const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+    console.log('🟡 Generated IDs:', { transactionId, txnRefId, merchantOrderId, vendorRefId });
 
     const defaultQRData = {
       transactionId,
@@ -87,7 +104,7 @@ export const generateDefaultQR = async (req, res) => {
       status: 'GENERATED',
       txnRefId,
       merchantOrderId,
-      mid: req.user.mid || 'DEFAULT_MID', // FIX: Should be req.user.mid
+      mid: req.user.mid || 'DEFAULT_MID',
       "Vendor Ref ID": vendorRefId,
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino',
@@ -96,15 +113,23 @@ export const generateDefaultQR = async (req, res) => {
       txnNote: 'Default QR Code'
     };
 
+    console.log('🟡 Default QR Data:', defaultQRData);
+
     const defaultTransaction = new QrTransaction(defaultQRData);
+    console.log('🟡 QrTransaction model created');
     
     // Generate default QR code
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=Merchant&am=0&tn=Default QR Code`;
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=0&tn=Default QR Code`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
+
+    console.log('🟡 Generated QR URLs:', { paymentUrl, qrCodeUrl });
 
     defaultTransaction.qrCode = qrCodeUrl;
     defaultTransaction.paymentUrl = paymentUrl;
+    
+    console.log('🟡 Saving to database...');
     await defaultTransaction.save();
+    console.log('✅ Default QR saved successfully');
 
     res.status(200).json({
       success: true,
@@ -116,11 +141,12 @@ export const generateDefaultQR = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Generate Default QR Error:', error);
+    console.error('❌ Generate Default QR Error:', error);
+    console.error('❌ Error stack:', error.stack);
     res.status(500).json({
       code: 500,
       message: 'Failed to generate default QR',
-      error: error.message // Include actual error message
+      error: error.message
     });
   }
 };
