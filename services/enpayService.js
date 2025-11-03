@@ -1,4 +1,3 @@
-// services/enpayService.js
 import axios from 'axios';
 
 const ENPAY_CONFIG = {
@@ -18,29 +17,28 @@ const enpayApi = axios.create({
   }
 });
 
-// Generate Dynamic QR via Enpay API
 export const generateEnpayDynamicQR = async (transactionData) => {
   try {
     console.log('🟡 Calling Enpay API for Dynamic QR...');
-    
+
     const payload = {
       merchantHashId: ENPAY_CONFIG.merchantHashId,
-      txnAmount: transactionData.amount,
+      txnAmount: transactionData.amount, // This will now correctly use the amount from controller
       txnNote: transactionData.txnNote || 'Payment for Order',
-      txnRefId: transactionData.transactionId // Use your transactionId as reference
+      txnRefId: transactionData.transactionId
     };
 
     console.log('🟡 Enpay API Payload:', payload);
 
     const response = await enpayApi.post('/dynamicQR', payload);
-    
+
     console.log('✅ Enpay API Response:', response.data);
 
     if (response.data.code === 0) {
       return {
         success: true,
-        enpayQRCode: response.data.details, // Base64 QR code
-        enpayTxnId: response.data.transactionId, // Enpay transaction ID
+        enpayQRCode: response.data.details,
+        enpayTxnId: response.data.transactionId,
         message: response.data.message
       };
     } else {
@@ -52,7 +50,7 @@ export const generateEnpayDynamicQR = async (transactionData) => {
 
   } catch (error) {
     console.error('❌ Enpay API Error:', error.response?.data || error.message);
-    
+
     return {
       success: false,
       error: error.response?.data?.message || error.message || 'Enpay API call failed'
@@ -60,24 +58,22 @@ export const generateEnpayDynamicQR = async (transactionData) => {
   }
 };
 
-// Generate Default QR via Enpay API
-// services/enpayService.js
-// ...
 export const generateEnpayDefaultQR = async (transactionData) => {
   try {
     console.log('🟡 Calling Enpay API for Default QR...');
-    
+
     const payload = {
       merchantHashId: ENPAY_CONFIG.merchantHashId,
-      txnAmount: 1, // CHANGED: Set a minimum amount (e.g., 1) as Enpay API requires it
-      txnNote: 'Default QR Code',
+      // FIX 2: Use the amount passed from the controller, which now defaults to 100
+      txnAmount: transactionData.amount,
+      txnNote: transactionData.txnNote || 'Default QR Code',
       txnRefId: transactionData.transactionId
     };
 
     console.log('🟡 Enpay Default QR Payload:', payload);
 
     const response = await enpayApi.post('/dynamicQR', payload);
-    
+
     console.log('✅ Enpay Default QR Response:', response.data);
 
     if (response.data.code === 0) {
@@ -96,7 +92,7 @@ export const generateEnpayDefaultQR = async (transactionData) => {
 
   } catch (error) {
     console.error('❌ Enpay Default QR API Error:', error.response?.data || error.message);
-    
+
     return {
       success: false,
       error: error.response?.data?.message || error.message || 'Enpay API call failed'

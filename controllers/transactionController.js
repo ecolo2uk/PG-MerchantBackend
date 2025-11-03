@@ -12,7 +12,7 @@ export const generateDynamicQR = async (req, res) => {
     const merchantId = req.user.id;
     const merchantName = req.user.name || 'Merchant';
 
-    const parsedAmount = parseFloat(amount); // Ensure it's parsed consistently
+    const parsedAmount = parseFloat(amount);
 
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({
@@ -21,49 +21,46 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    const MINIMUM_ENPAY_AMOUNT = 100; // <-- IMPORTANT: Verify this with Enpay documentation!
-    if (parsedAmount < MINIMUM_ENPAY_AMOUNT) { 
+    // IMPORTANT: Verify this with Enpay documentation!
+    const MINIMUM_ENPAY_AMOUNT = 100;
+    if (parsedAmount < MINIMUM_ENPAY_AMOUNT) {
         return res.status(400).json({
             code: 400,
             message: `Transaction amount must be at least ${MINIMUM_ENPAY_AMOUNT} INR`
         });
     }
 
-    // Generate unique IDs
     const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-    // Create transaction data
     const transactionData = {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      amount: parsedAmount, // CORRECTED: Use parsedAmount
+      amount: parsedAmount,
       status: 'GENERATED',
       createdAt: new Date().toISOString(),
       "Commission Amount": 0,
       mid: req.user.mid || 'DEFAULT_MID',
-      "Settlement Status": "NA", 
+      "Settlement Status": "NA",
       "Vendor Ref ID": vendorRefId,
       txnNote,
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino',
       merchantOrderId: `ORDER${Date.now()}`,
-      txnRefId: transactionId, // For Enpay reference
+      txnRefId: transactionId,
       merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF'
     };
 
     console.log('🟡 Calling Enpay API...');
 
-    // STEP 1: Call Enpay API to create actual transaction
     const enpayResult = await generateEnpayDynamicQR(transactionData);
 
     if (!enpayResult.success) {
-      // If Enpay API fails, still save transaction but mark as failed
       transactionData.status = 'FAILED';
       transactionData.enpayInitiationStatus = 'ATTEMPTED_FAILED';
       transactionData.enpayError = enpayResult.error;
-      
+
       const transaction = new Transaction(transactionData);
       await transaction.save();
 
@@ -75,20 +72,17 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    // STEP 2: Enpay API successful - update transaction with Enpay data
     transactionData.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
     transactionData.enpayQRCode = enpayResult.enpayQRCode;
     transactionData.enpayTxnId = enpayResult.enpayTxnId;
-    transactionData.status = 'INITIATED'; // Change status to INITIATED
+    transactionData.status = 'INITIATED';
 
-    // Generate local QR as fallback
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${txnNote}&tr=${transactionId}`; // CORRECTED: Use parsedAmount
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${txnNote}&tr=${transactionId}`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
     transactionData.qrCode = qrCodeUrl;
     transactionData.paymentUrl = paymentUrl;
 
-    // Save to database
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
 
@@ -99,14 +93,14 @@ export const generateDynamicQR = async (req, res) => {
       transactionId: savedTransaction.transactionId,
       qrCode: savedTransaction.enpayQRCode ? `data:image/png;base64,${savedTransaction.enpayQRCode}` : savedTransaction.qrCode,
       paymentUrl: savedTransaction.paymentUrl,
-      amount: parsedAmount, // CORRECTED: Use parsedAmount
+      amount: parsedAmount,
       enpayTxnId: savedTransaction.enpayTxnId,
       message: 'QR generated successfully with Enpay integration'
     });
 
   } catch (error) {
     console.error('❌ Generate QR Error:', error);
-    
+
     res.status(500).json({
       code: 500,
       message: 'Failed to generate QR',
@@ -118,7 +112,7 @@ export const generateDynamicQR = async (req, res) => {
 export const generateDefaultQR = async (req, res) => {
   try {
     console.log('🔵 generateDefaultQR - Start');
-    
+
     if (!req.user || !req.user.id) {
       return res.status(401).json({
         code: 401,
@@ -130,15 +124,17 @@ export const generateDefaultQR = async (req, res) => {
     const merchantId = req.user.id;
     const merchantName = req.user.name || 'Default Merchant';
 
-    // Generate IDs
     const transactionId = `DFT${Date.now()}`;
     const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
+    // FIX 2: Set default amount to minimum allowed by Enpay
+    const DEFAULT_ENPAY_AMOUNT = 100; // Use the same minimum as dynamic QR
+    
     const transactionData = {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      amount: 1,
+      amount: DEFAULT_ENPAY_AMOUNT, // Corrected default amount
       "Commission Amount": 0,
       createdAt: new Date().toISOString(),
       mid: req.user.mid || 'DEFAULT_MID',
@@ -155,14 +151,13 @@ export const generateDefaultQR = async (req, res) => {
 
     console.log('🔵 Calling Enpay API for Default QR...');
 
-    // Call Enpay API for default QR
     const enpayResult = await generateEnpayDefaultQR(transactionData);
 
     if (!enpayResult.success) {
       transactionData.status = 'FAILED';
       transactionData.enpayInitiationStatus = 'ATTEMPTED_FAILED';
       transactionData.enpayError = enpayResult.error;
-      
+
       const transaction = new Transaction(transactionData);
       await transaction.save();
 
@@ -174,14 +169,13 @@ export const generateDefaultQR = async (req, res) => {
       });
     }
 
-    // Enpay API successful
     transactionData.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
     transactionData.enpayQRCode = enpayResult.enpayQRCode;
     transactionData.enpayTxnId = enpayResult.enpayTxnId;
     transactionData.status = 'INITIATED';
 
-    // Generate local QR as fallback
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=0&tn=Default%20QR`;
+    // Generate local QR as fallback - use the correct default amount here as well
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${DEFAULT_ENPAY_AMOUNT}&tn=Default%20QR`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
     transactionData.qrCode = qrCodeUrl;
@@ -189,7 +183,7 @@ export const generateDefaultQR = async (req, res) => {
 
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
-    
+
     console.log('✅ Default QR saved successfully with Enpay integration');
 
     res.status(200).json({
@@ -205,7 +199,7 @@ export const generateDefaultQR = async (req, res) => {
 
   } catch (error) {
     console.error('❌ generateDefaultQR Error:', error);
-    
+
     res.status(500).json({
       code: 500,
       success: false,
@@ -215,8 +209,7 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
-// Get Transactions - FIXED
-// Update getTransactions function
+
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -584,31 +577,34 @@ export const simulatePaymentWebhook = async (req, res) => {
 export const debugSchema = async (req, res) => {
   try {
     const sampleDoc = await Transaction.findOne();
-    const validationResult = await db.command({
+    // FIX 1: Use mongoose.connection.db for db commands
+    const validationResult = await mongoose.connection.db.command({
       validate: "transactions",
       full: true
     });
-    
+
     res.json({
       sampleDocument: sampleDoc,
       validation: validationResult,
       collectionStats: await Transaction.db.collection('transactions').stats()
     });
   } catch (error) {
+    console.error("❌ Debug Schema Error:", error); // Added error logging
     res.status(500).json({ error: error.message });
   }
 };
 
 export const fixSchema = async (req, res) => {
   try {
-    // Remove strict validation temporarily
-    await db.command({
+    // FIX 1: Use mongoose.connection.db for db commands
+    await mongoose.connection.db.command({
       collMod: "transactions",
       validator: {}
     });
-    
+
     res.json({ message: "Schema validation disabled", success: true });
   } catch (error) {
+    console.error("❌ Fix Schema Error:", error); // Added error logging
     res.status(500).json({ error: error.message });
   }
 };
