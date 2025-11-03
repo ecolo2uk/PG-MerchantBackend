@@ -1,8 +1,8 @@
 import mongoose from 'mongoose';
 
-// SINGLE unified transaction schema
+// SINGLE unified transaction schema for ALL transactions
 const transactionSchema = new mongoose.Schema({
-  // Required fields from your schema
+  // Required fields from your JSON schema
   _id: {
     type: mongoose.Schema.Types.ObjectId,
     auto: true
@@ -96,11 +96,18 @@ const transactionSchema = new mongoose.Schema({
   },
   "Vendor Txn ID": {
     type: String
+  },
+  enpayTxnId: {
+    type: String
+  },
+  updatedAt: {
+    type: String
   }
 
 }, {
-  collection: 'transactions', // ✅ SINGLE collection
-  timestamps: true
+  collection: 'transactions',
+  timestamps: false // We'll handle manually to match your schema
 });
 
+// Export the model
 export default mongoose.model('Transaction', transactionSchema);

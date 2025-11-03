@@ -1,42 +1,46 @@
-import  Transaction  from '../models/Transaction.js';
-import QrTransaction from '../models/QrTransaction.js';
+import Transaction from '../models/Transaction.js'; // ✅ एकच model
 import mongoose from 'mongoose';
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
-const generateTxnRefId = () => `REF${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// Generate Dynamic QR
-// Generate Dynamic QR - FIXED VERSION
+// Generate Dynamic QR - FIXED
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = 'Payment for Order' } = req.body;
     const merchantId = req.user.id;
     const merchantName = req.user.name || 'Merchant';
 
-    // Generate unique IDs
-    const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const vendorRefId = `VENDOR${Date.now()}`;
+    if (!amount || isNaN(amount)) {
+      return res.status(400).json({
+        code: 400,
+        message: 'Valid amount is required'
+      });
+    }
 
-    // ✅ COMPLETE data that matches schema
+    // Generate unique IDs
+    const transactionId = generateTransactionId();
+    const vendorRefId = generateVendorRefId();
+
+    // ✅ COMPLETE data matching EXACT schema
     const transactionData = {
       transactionId,
       merchantId: new mongoose.Types.ObjectId(merchantId),
       merchantName,
-      amount: Number(amount),
+      amount: parseFloat(amount),
       "Commission Amount": 0,
-      createdAt: new Date().toISOString(), // ✅ REQUIRED FIELD
+      createdAt: new Date().toISOString(), // ✅ REQUIRED
       mid: req.user.mid || 'DEFAULT_MID',
       "Settlement Status": "NA",
       status: 'GENERATED',
       "Vendor Ref ID": vendorRefId,
-      // Optional fields but include them
       txnNote,
       upiId: 'enpay1.skypal@fino',
-      merchantVpa: 'enpay1.skypal@fino'
+      merchantVpa: 'enpay1.skypal@fino',
+      merchantOrderId: `ORDER${Date.now()}`
     };
 
-    console.log('🟡 Transaction Data:', transactionData);
+    console.log('🟡 Transaction Data for Dynamic QR:', transactionData);
 
     // Generate QR code URL
     const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${amount}&tn=${txnNote}&tr=${transactionId}`;
@@ -46,14 +50,15 @@ export const generateDynamicQR = async (req, res) => {
     transactionData.qrCode = qrCodeUrl;
     transactionData.paymentUrl = paymentUrl;
 
+    // Save to database
     const transaction = new Transaction(transactionData);
-    await transaction.save();
+    const savedTransaction = await transaction.save();
 
-    console.log('✅ QR Saved successfully in transactions collection');
+    console.log('✅ Dynamic QR Saved successfully with ID:', savedTransaction.transactionId);
 
     res.status(200).json({
       success: true,
-      transactionId: transaction.transactionId,
+      transactionId: savedTransaction.transactionId,
       qrCode: qrCodeUrl,
       paymentUrl: paymentUrl,
       amount: amount,
@@ -64,22 +69,25 @@ export const generateDynamicQR = async (req, res) => {
     console.error('❌ Generate QR Error:', error);
     
     // Detailed error log
-    console.error('❌ Validation Error Details:', {
-      name: error.name,
-      message: error.message,
-      errors: error.errors
-    });
+    console.error('❌ Validation Error Details:', error.message);
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        code: 400,
+        message: 'Data validation failed',
+        error: error.message
+      });
+    }
 
     res.status(500).json({
       code: 500,
       message: 'Failed to generate QR',
-      error: error.message,
-      errorType: error.name
+      error: error.message
     });
   }
 };
 
-// Generate Default QR - FIXED VERSION
+// Generate Default QR - FIXED
 export const generateDefaultQR = async (req, res) => {
   try {
     console.log('🔵 generateDefaultQR - Start');
@@ -97,13 +105,13 @@ export const generateDefaultQR = async (req, res) => {
 
     // Generate IDs
     const transactionId = `DFT${Date.now()}`;
-    const vendorRefId = `VENDOR${Date.now()}`;
+    const vendorRefId = generateVendorRefId();
 
-    // ✅ COMPLETE data matching schema
+    // ✅ COMPLETE data matching EXACT schema
     const transactionData = {
-      transactionId: transactionId,
+      transactionId,
       merchantId: new mongoose.Types.ObjectId(merchantId),
-      merchantName: merchantName,
+      merchantName,
       amount: 0,
       "Commission Amount": 0,
       createdAt: new Date().toISOString(), // ✅ REQUIRED
@@ -113,10 +121,11 @@ export const generateDefaultQR = async (req, res) => {
       "Vendor Ref ID": vendorRefId,
       txnNote: 'Default QR Code',
       upiId: 'enpay1.skypal@fino',
-      merchantVpa: 'enpay1.skypal@fino'
+      merchantVpa: 'enpay1.skypal@fino',
+      merchantOrderId: `ORDER${Date.now()}`
     };
 
-    console.log('🔵 Transaction Data prepared:', transactionData);
+    console.log('🔵 Transaction Data for Default QR:', transactionData);
 
     // Generate QR URLs
     const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=0&tn=Default%20QR`;
@@ -126,15 +135,12 @@ export const generateDefaultQR = async (req, res) => {
     transactionData.qrCode = qrCodeUrl;
     transactionData.paymentUrl = paymentUrl;
 
-    console.log('🔵 Final data with QR:', transactionData);
-
     // Save to database
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
     
-    console.log('✅ Default QR saved successfully');
+    console.log('✅ Default QR saved successfully with ID:', savedTransaction.transactionId);
 
-    // Success response
     res.status(200).json({
       success: true,
       transactionId: savedTransaction.transactionId,
@@ -148,162 +154,25 @@ export const generateDefaultQR = async (req, res) => {
   } catch (error) {
     console.error('❌ generateDefaultQR Error:', error);
     
-    // Detailed error information
-    console.error('❌ ERROR DETAILS:', {
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      keyPattern: error.keyPattern,
-      keyValue: error.keyValue,
-      errors: error.errors
-    });
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        code: 400,
+        success: false,
+        message: 'Data validation failed',
+        error: error.message
+      });
+    }
 
     res.status(500).json({
       code: 500,
       success: false,
       message: 'Failed to generate default QR',
-      error: error.message,
-      errorType: error.name
-    });
-  }
-};
-
-// Debug endpoints
-export const testSchemaValidation = async (req, res) => {
-  try {
-    console.log('🔍 Testing schema validation...');
-    
-    const testData = {
-      transactionId: `TEST${Date.now()}`,
-      merchantId: req.user.id,
-      merchantName: 'Test Merchant',
-      amount: 0,
-      status: 'GENERATED',
-      mid: 'TEST_MID',
-      "Vendor Ref ID": `VENDOR${Date.now()}`,
-      "Commission Amount": 0,
-      "Settlement Status": "NA",
-      upiId: 'enpay1.skypal@fino',
-      merchantVpa: 'enpay1.skypal@fino',
-      txnNote: 'Test QR'
-    };
-
-    console.log('🔍 Test data:', testData);
-
-    // Test model creation
-    const testDoc = new QrTransaction(testData);
-    
-    // Test validation
-    const validationError = testDoc.validateSync();
-    if (validationError) {
-      console.log('❌ Validation errors found:');
-      Object.keys(validationError.errors).forEach(key => {
-        console.log(`  - ${key}: ${validationError.errors[key].message}`);
-      });
-      
-      return res.json({
-        success: false,
-        message: 'Schema validation failed',
-        errors: validationError.errors
-      });
-    }
-
-    console.log('✅ Schema validation passed');
-    
-    res.json({
-      success: true,
-      message: 'Schema validation successful',
-      testData: testData
-    });
-
-  } catch (error) {
-    console.error('❌ Schema test error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Schema test failed',
       error: error.message
     });
   }
 };
 
-export const testDatabaseConnection = async (req, res) => {
-  try {
-    console.log('🔍 Testing database connection...');
-    
-    // Test count
-    const count = await QrTransaction.countDocuments();
-    
-    // Test simple save
-    const testDoc = new QrTransaction({
-      transactionId: `DBTEST${Date.now()}`,
-      merchantId: req.user.id,
-      merchantName: 'DB Test',
-      amount: 0,
-      status: 'GENERATED'
-    });
-    
-    await testDoc.save();
-    
-    // Clean up
-    await QrTransaction.deleteOne({ transactionId: testDoc.transactionId });
-    
-    res.json({
-      success: true,
-      message: 'Database connection working',
-      count: count
-    });
-    
-  } catch (error) {
-    console.error('❌ Database test error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database test failed',
-      error: error.message
-    });
-  }
-};
-
-// Debug Simple Endpoint
-export const debugDefaultQRSimple = async (req, res) => {
-  try {
-    console.log('🔍 DEBUG SIMPLE: Testing basic functionality');
-    
-    if (!req.user) {
-      return res.status(401).json({
-        code: 401,
-        message: 'No user object'
-      });
-    }
-
-    console.log('🔍 User:', {
-      id: req.user.id,
-      name: req.user.name,
-      email: req.user.email
-    });
-
-    // Test basic response
-    res.json({
-      success: true,
-      message: 'Debug endpoint working',
-      user: {
-        id: req.user.id,
-        name: req.user.name
-      },
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('🔍 Debug error:', error);
-    res.status(500).json({
-      code: 500,
-      message: 'Debug failed',
-      error: error.message,
-      stack: error.stack
-    });
-  }
-};
-
-// Get Transactions
+// Get Transactions - FIXED
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -329,7 +198,7 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// Check Transaction Status
+// Other functions remain the same...
 export const checkTransactionStatus = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -356,7 +225,6 @@ export const checkTransactionStatus = async (req, res) => {
         status: transaction.status,
         amount: transaction.amount,
         upiId: transaction.upiId,
-        txnRefId: transaction.txnRefId,
         createdAt: transaction.createdAt,
         settlementStatus: transaction["Settlement Status"]
       }
@@ -493,7 +361,7 @@ export const getTransactionDetails = async (req, res) => {
   }
 };
 
-// Download Receipt
+
 export const downloadReceipt = async (req, res) => {
   try {
     const { transactionId } = req.params;
