@@ -128,7 +128,7 @@ export const generateDefaultQR = async (req, res) => {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      amount: 0,
+      amount: 1,
       "Commission Amount": 0,
       createdAt: new Date().toISOString(),
       mid: req.user.mid || 'DEFAULT_MID',
