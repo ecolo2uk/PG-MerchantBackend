@@ -9,7 +9,9 @@ import {
   testConnection,
  debugSchema,
  fixSchema,
-  testEnpayConnection
+  testEnpayConnection,
+  testEnpayEndpoints,
+  enpayDebugScript
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 import { validateTransactionData } from "../middleware/validationMiddleware.js";
@@ -29,5 +31,7 @@ router.get("/test-connection", authenticateMerchant, testConnection);
 // Debug routes
 router.post("/test-enpay", authenticateMerchant, testEnpayConnection);
 router.post("/webhook", handlePaymentWebhook);
-
+// routes/transactionRoutes.js मध्ये
+router.get('/test-enpay-endpoints', authenticateMerchant, testEnpayEndpoints);
+router.get('/enpay-debug', authenticateMerchant, enpayDebugScript);
 export default router;

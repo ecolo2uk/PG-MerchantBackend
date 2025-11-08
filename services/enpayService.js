@@ -1,70 +1,67 @@
-// services/enpayService.js - COMPLETELY FIXED
-import axios from 'axios';
-
+// services/enpayService.js मध्ये
 const ENPAY_CONFIG = {
-  baseURL: 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR', // ✅ CORRECT URL
+  // ✅ TRY DIFFERENT ENDPOINTS:
+  baseURL: 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway',
+  // OR
+  // baseURL: 'https://api.enpay.in/enpay-product-service/api/v1',
+  // OR  
+  // baseURL: 'https://api.enpay.in/api/v1/merchant-gateway',
+  
   merchantKey: '0851439b-03df-4983-88d6-32399b1e4514',
-  merchantSecret: 'bae97f533a594af9bf3dded47f09c34e15e053d1', 
-  merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF' // ✅ Verify this with Enpay
+  merchantSecret: 'bae97f533a594af9bf3dded47f09c34e15e053d1',
+  merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF'
 };
 
-const enpayApi = axios.create({
-  baseURL: ENPAY_CONFIG.baseURL,
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-    'X-Merchant-Key': ENPAY_CONFIG.merchantKey,
-    'X-Merchant-Secret': ENPAY_CONFIG.merchantSecret
-  }
-});
-
+// ✅ TRY DIFFERENT ENDPOINT PATHS:
 export const generateEnpayDynamicQR = async (transactionData) => {
   try {
-    console.log('🟡 Calling Enpay API for Dynamic QR...');
+    // const payload = {
+    //   merchantHashId: ENPAY_CONFIG.merchantHashId,
+    //   txnAmount: transactionData.amount.toString(),
+    //   txnNote: transactionData.txnNote || 'Payment for Order',
+    //   txnRefId: transactionData.transactionId
+    // };
 
-    // ✅ CORRECT Payload structure
-    const payload = {
-      merchantHashId: ENPAY_CONFIG.merchantHashId,
-      txnAmount: transactionData.amount.toString(),
-      txnNote: transactionData.txnNote || 'Payment for Order',
-      txnRefId: transactionData.transactionId
-    };
+    // console.log('🟡 Trying Enpay API endpoint...');
 
-    console.log('🟡 Enpay API Payload:', JSON.stringify(payload, null, 2));
-
-    const response = await enpayApi.post('/dynamicQR', payload);
-
-    console.log('✅ Enpay API Response:', {
-      status: response.status,
-      data: response.data
-    });
-
-    // ✅ CORRECT Response handling
-    if (response.data && response.data.code === 0) {
-      return {
-        success: true,
-        enpayQRCode: response.data.details?.qrCode || response.data.details,
-        enpayTxnId: response.data.transactionId,
-        message: response.data.message
-      };
-    } else {
-      console.error('❌ Enpay API Business Error:', response.data);
-      return {
-        success: false,
-        error: response.data?.message || `Enpay API error: ${response.data?.code}`
-      };
+    // ✅ TRY DIFFERENT PATHS:
+    let response;
+    
+    // Option 1: Original path
+    try {
+      response = await enpayApi.post('/dynamicQR', payload);
+      console.log('✅ Success with /dynamicQR');
+    } catch (error1) {
+      console.log('❌ Failed with /dynamicQR, trying alternatives...');
+      
+      // Option 2: Without leading slash
+      try {
+        response = await enpayApi.post('dynamicQR', payload);
+        console.log('✅ Success with dynamicQR');
+      } catch (error2) {
+        // Option 3: Different endpoint name
+        try {
+          response = await enpayApi.post('/generate-dynamic-qr', payload);
+          console.log('✅ Success with /generate-dynamic-qr');
+        } catch (error3) {
+          // Option 4: Completely different path
+          try {
+            response = await enpayApi.post('/qr/generate', payload);
+            console.log('✅ Success with /qr/generate');
+          } catch (error4) {
+            throw new Error('All endpoint attempts failed');
+          }
+        }
+      }
     }
 
-  } catch (error) {
-    console.error('❌ Enpay API Network Error:', {
-      message: error.message,
-      status: error.response?.status,
-      data: error.response?.data
-    });
+    // ... rest of response handling
 
+  } catch (error) {
+    console.error('❌ All Enpay API endpoints failed');
     return {
       success: false,
-      error: error.response?.data || error.message
+      error: 'Enpay API endpoint not found. Please check API documentation.'
     };
   }
 };

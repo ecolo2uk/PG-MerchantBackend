@@ -193,7 +193,6 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
-// ✅ REMOVED: Duplicate generateEnpayDynamicQR function - it's already in enpayService.js
 
 export const testEnpayConnection = async (req, res) => {
   try {
@@ -658,4 +657,88 @@ export const testEnpayDirect = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+};
+
+
+// Test different API structures
+export const testEnpayEndpoints = async (req, res) => {
+  try {
+    const endpointsToTest = [
+      '/dynamicQR',
+      'dynamicQR', 
+      '/generate-dynamic-qr',
+      '/qr/generate',
+      '/generateQR',
+      '/v1/dynamicQR',
+      '/merchant-gateway/dynamicQR'
+    ];
+
+    const testResults = [];
+
+    for (const endpoint of endpointsToTest) {
+      try {
+        const payload = {
+          merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF',
+          txnAmount: '100',
+          txnNote: 'Test Payment',
+          txnRefId: `TEST${Date.now()}`
+        };
+
+        console.log(`🧪 Testing endpoint: ${endpoint}`);
+        
+        const response = await enpayApi.post(endpoint, payload);
+        testResults.push({
+          endpoint,
+          status: 'SUCCESS',
+          data: response.data
+        });
+        break; // Stop at first success
+        
+      } catch (error) {
+        testResults.push({
+          endpoint, 
+          status: 'FAILED',
+          error: error.response?.data || error.message
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      testResults,
+      workingEndpoint: testResults.find(r => r.status === 'SUCCESS')?.endpoint
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+// Create a test script to share with Enpay support
+export const enpayDebugScript = async (req, res) => {
+  const debugInfo = {
+    timestamp: new Date().toISOString(),
+    baseURL: ENPAY_CONFIG.baseURL,
+    endpointsTested: [
+      'POST /dynamicQR',
+      'POST /generate-dynamic-qr', 
+      'POST /qr/generate'
+    ],
+    headers: {
+      'X-Merchant-Key': '***' + ENPAY_CONFIG.merchantKey.slice(-4),
+      'X-Merchant-Secret': '***' + ENPAY_CONFIG.merchantSecret.slice(-4),
+      'Content-Type': 'application/json'
+    },
+    samplePayload: {
+      merchantHashId: ENPAY_CONFIG.merchantHashId,
+      txnAmount: "100",
+      txnNote: "Test Payment",
+      txnRefId: "TEST123456"
+    },
+    error: '405 Method Not Allowed - Please verify the correct API endpoint'
+  };
+
+  res.json(debugInfo);
 };
