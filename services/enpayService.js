@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const ENPAY_CONFIG = {
-  baseURL: 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway', // ✅ CORRECT URL
+  baseURL: 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR', // ✅ CORRECT URL
   merchantKey: '0851439b-03df-4983-88d6-32399b1e4514',
   merchantSecret: 'bae97f533a594af9bf3dded47f09c34e15e053d1', 
   merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF' // ✅ Verify this with Enpay
