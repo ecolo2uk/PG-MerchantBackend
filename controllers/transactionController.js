@@ -54,52 +54,34 @@ export const generateDynamicQR = async (req, res) => {
     console.log('🟡 Calling Enpay API with amount:', parsedAmount);
 
     // Call Enpay API
-    const enpayResult = await generateEnpayDynamicQR(transactionData);
+  const enpayResult = await generateEnpayDynamicQR(transactionData);
 
     if (!enpayResult.success) {
-      // Save failed transaction attempt
-      transactionData.status = 'FAILED';
+      console.log('🟡 Enpay failed, using fallback QR generation');
+      
+      // ✅ Fallback to local QR generation
+      const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
+
+      transactionData.qrCode = qrCodeUrl;
+      transactionData.paymentUrl = paymentUrl;
+      transactionData.status = 'INITIATED';
       transactionData.enpayInitiationStatus = 'ATTEMPTED_FAILED';
       transactionData.enpayError = enpayResult.error;
 
       const transaction = new Transaction(transactionData);
-      await transaction.save();
+      const savedTransaction = await transaction.save();
 
-      return res.status(500).json({
-        code: 500,
-        success: false,
-        message: 'Enpay API call failed',
-        error: enpayResult.error
+      return res.status(200).json({
+        success: true,
+        transactionId: savedTransaction.transactionId,
+        qrCode: savedTransaction.qrCode,
+        paymentUrl: savedTransaction.paymentUrl,
+        amount: parsedAmount,
+        message: 'QR generated with fallback method',
+        fallback: true
       });
     }
-
-    // Save successful transaction
-    transactionData.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
-    transactionData.enpayQRCode = enpayResult.enpayQRCode;
-    transactionData.enpayTxnId = enpayResult.enpayTxnId;
-    transactionData.status = 'INITIATED';
-
-    // Generate local QR as fallback
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
-
-    transactionData.qrCode = qrCodeUrl;
-    transactionData.paymentUrl = paymentUrl;
-
-    const transaction = new Transaction(transactionData);
-    const savedTransaction = await transaction.save();
-
-    console.log('✅ QR Saved successfully with Enpay integration');
-
-    res.status(200).json({
-      success: true,
-      transactionId: savedTransaction.transactionId,
-      qrCode: savedTransaction.enpayQRCode ? `data:image/png;base64,${savedTransaction.enpayQRCode}` : savedTransaction.qrCode,
-      paymentUrl: savedTransaction.paymentUrl,
-      amount: parsedAmount,
-      enpayTxnId: savedTransaction.enpayTxnId,
-      message: 'QR generated successfully with Enpay integration'
-    });
 
   } catch (error) {
     console.error('❌ Generate QR Error:', error);
@@ -494,7 +476,6 @@ export const downloadReceipt = async (req, res) => {
   }
 };
 
-// Initiate Refund
 export const initiateRefund = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -642,6 +623,39 @@ export const fixSchema = async (req, res) => {
     res.json({ message: "Schema validation disabled", success: true });
   } catch (error) {
     console.error("❌ Fix Schema Error:", error); // Added error logging
+    res.status(500).json({ error: error.message });
+  }
+};
+
+
+// controllers/transactionController.js मध्ये add करा
+export const testEnpayDirect = async (req, res) => {
+  try {
+    const request = require('request');
+    
+    const options = {
+      'method': 'POST',
+      'url': 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
+      'headers': {
+        'Content-Type': 'application/json',
+        'X-Merchant-Key': '0851439b-03df-4983-88d6-32399b1e4514',
+        'X-Merchant-Secret': 'bae97f533a594af9bf3dded47f09c34e15e053d1'
+      },
+      body: JSON.stringify({
+        "merchantHashId": "MERCDSH51Y7CD4YJLFIZR8NF",
+        "txnAmount": "100",
+        "txnNote": "Test Payment",
+        "txnRefId": "TEST123456"
+      })
+    };
+
+    request(options, function (error, response) {
+      if (error) {
+        return res.status(500).json({ error: error.message });
+      }
+      res.json(JSON.parse(response.body));
+    });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
