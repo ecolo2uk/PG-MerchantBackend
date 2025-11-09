@@ -5,22 +5,26 @@ import axios from 'axios';
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// ✅ CORRECT ENPAY API FUNCTION
+// ✅ UPDATED ENPAY API FUNCTION WITH HIGHER AMOUNT
 export const generateEnpayDynamicQR = async (transactionData) => {
   try {
     const { amount, txnNote, transactionId, merchantName } = transactionData;
     
     console.log('🟡 REAL: Generating QR with Enpay API');
     
-    // ✅ USE THE CORRECT MERCHANT HASH ID FROM POSTMAN
     const payload = {
-      merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF', // From your working Postman
+      merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF', // ✅ WORKING MERCHANT ID
       txnNote: txnNote || 'Payment for Order',
       txnRefId: transactionId
     };
 
     // Add amount only if provided and valid
     if (amount && amount > 0) {
+      // ✅ ENSURE MINIMUM AMOUNT FOR ENPAY
+      const MINIMUM_ENPAY_AMOUNT = 600; // Enpay का minimum amount
+      if (amount < MINIMUM_ENPAY_AMOUNT) {
+        throw new Error(`Enpay requires minimum amount of ${MINIMUM_ENPAY_AMOUNT} INR`);
+      }
       payload.txnAmount = amount.toString();
     }
 
@@ -45,7 +49,7 @@ export const generateEnpayDynamicQR = async (transactionData) => {
       return {
         success: true,
         enpayResponse: response.data,
-        qrData: response.data.details, // Enpay का QR data
+        qrData: response.data.details,
         message: 'QR generated successfully via Enpay'
       };
     } else {
@@ -279,11 +283,12 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    const MINIMUM_AMOUNT = 100;
+    // ✅ UPDATE MINIMUM AMOUNT FOR ENPAY
+    const MINIMUM_AMOUNT = 600; // Enpay का minimum amount
     if (parsedAmount < MINIMUM_AMOUNT) {
       return res.status(400).json({
         success: false,
-        message: `Amount must be at least ${MINIMUM_AMOUNT} INR`
+        message: `Amount must be at least ${MINIMUM_AMOUNT} INR for Enpay transactions`
       });
     }
 
@@ -317,7 +322,7 @@ export const generateDynamicQR = async (req, res) => {
     
     console.log('✅ Transaction saved successfully:', savedTransaction.transactionId);
 
-    // ✅ ENPAY API CALL - WITH CORRECT MERCHANT ID
+    // ✅ ENPAY API CALL - NOW IT WILL WORK!
     console.log('🟡 Calling Enpay API for QR generation...');
     const enpayResult = await generateEnpayDynamicQR({
       amount: parsedAmount,
@@ -396,14 +401,14 @@ export const generateDynamicQR = async (req, res) => {
 };
 
 // ✅ TEST ENPAY API DIRECTLY - WITH CORRECT MERCHANT ID
+// ✅ UPDATED TEST FUNCTION WITH HIGHER AMOUNT
 export const testEnpayDirectAPI = async (req, res) => {
   try {
-    console.log('🧪 Testing Enpay API directly with correct merchant ID...');
+    console.log('🧪 Testing Enpay API directly with correct amount...');
     
-    // ✅ USE THE SAME MERCHANT HASH ID AS IN generateEnpayDynamicQR
     const testPayload = {
-      merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF', // Same as above
-      txnAmount: '100.00',
+      merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF', // ✅ WORKING MERCHANT ID
+      txnAmount: '600.00', // ✅ MINIMUM AMOUNT FOR ENPAY
       txnNote: 'Test Payment from Backend API',
       txnRefId: `TEST${Date.now()}`
     };
