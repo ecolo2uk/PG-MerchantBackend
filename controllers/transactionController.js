@@ -68,6 +68,86 @@ export const generateEnpayDynamicQR = async (transactionData) => {
   }
 };
 
+// ✅ TEST ALL POSSIBLE MERCHANT IDs
+export const testAllMerchantIDs = async (req, res) => {
+  try {
+    console.log('🧪 Testing all possible Merchant IDs...');
+    
+    const merchantIDs = [
+      'MERCOSH51Y7CDAYJLFIZR8M',      // From your first screenshot
+      'MERCOSH51Y7CDAYJLF12R6MF',     // From your second screenshot  
+      'MERCDSH51Y7CD4YJLFIZR8NF',     // From your working Postman
+      'MERCOSHESYYCDAYOLFTZR8MF'      // From your previous code
+    ];
+
+    const testResults = [];
+
+    for (const merchantId of merchantIDs) {
+      try {
+        const testPayload = {
+          merchantHashId: merchantId,
+          txnAmount: '100.00',
+          txnNote: 'Test Merchant ID',
+          txnRefId: `TEST${Date.now()}${Math.random().toString(36).substr(2, 5)}`
+        };
+
+        console.log(`🟡 Testing Merchant ID: ${merchantId}`);
+        
+        const response = await axios.post(
+          'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
+          testPayload,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Merchant-Key': '0851439b-03df-4983-88d6-32399b1e4514',
+              'X-Merchant-Secret': 'bae97f533a594af9bf3dded47f09c34e15e053d1'
+            },
+            timeout: 15000
+          }
+        );
+
+        testResults.push({
+          merchantId,
+          status: 'SUCCESS',
+          response: response.data
+        });
+
+        console.log(`✅ Merchant ID ${merchantId} WORKING:`, response.data);
+
+        // Stop at first success
+        if (response.data.code === 0) {
+          console.log(`🎯 WORKING MERCHANT ID FOUND: ${merchantId}`);
+          break;
+        }
+
+      } catch (error) {
+        console.log(`❌ Merchant ID ${merchantId} FAILED:`, error.response?.data || error.message);
+        testResults.push({
+          merchantId,
+          status: 'FAILED',
+          error: error.response?.data || error.message
+        });
+      }
+    }
+
+    const workingMerchant = testResults.find(r => r.status === 'SUCCESS' && r.response?.code === 0);
+
+    res.json({
+      success: !!workingMerchant,
+      testResults,
+      workingMerchantId: workingMerchant?.merchantId,
+      message: workingMerchant ? 'Working Merchant ID found!' : 'No working Merchant ID found'
+    });
+
+  } catch (error) {
+    console.error('❌ Merchant ID Test Failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 // ✅ FIXED testEnpayConnection function
 export const testEnpayConnection = async (req, res) => {
   try {
