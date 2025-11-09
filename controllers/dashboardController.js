@@ -548,25 +548,20 @@ export const debugDataStructure = async (req, res) => {
 };
 
 // Merchant-specific analytics
+// Merchant-specific analytics endpoint
+// Merchant-specific analytics endpoint
 export const getMerchantAnalytics = async (req, res) => {
   try {
-    let { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
+    const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
 
-    console.log('🟡 Merchant Analytics Request:', { 
-      merchantId, 
-      timeFilter
-    });
+    console.log('🟡 Merchant Analytics Request:', { merchantId, timeFilter });
 
     if (!merchantId) {
-      return res.status(400).json({ 
-        message: 'Merchant ID is required'
-      });
+      return res.status(400).json({ message: 'Merchant ID is required' });
     }
 
     if (!mongoose.Types.ObjectId.isValid(merchantId)) {
-      return res.status(400).json({ 
-        message: 'Invalid merchant ID format'
-      });
+      return res.status(400).json({ message: 'Invalid merchant ID format' });
     }
 
     const objectId = new mongoose.Types.ObjectId(merchantId);
@@ -575,12 +570,13 @@ export const getMerchantAnalytics = async (req, res) => {
       merchantId: objectId
     };
 
-    if (timeFilter !== 'all') {
-      const dateRange = getDateRange(timeFilter, startDate, endDate);
-      matchQuery = { ...matchQuery, ...dateRange };
+    // Add date range filtering
+    const dateRange = getDateRange(timeFilter, startDate, endDate);
+    if (Object.keys(dateRange).length > 0) {
+      matchQuery.createdAt = dateRange.createdAt;
     }
 
-    console.log('🔍 Final Match Query for merchant analytics:', JSON.stringify(matchQuery, null, 2));
+    console.log('🔍 Merchant Analytics Match Query:', JSON.stringify(matchQuery, null, 2));
 
     const analytics = await Transaction.aggregate([
       { $match: matchQuery },
@@ -644,8 +640,7 @@ export const getMerchantAnalytics = async (req, res) => {
       totalTransactions: 0
     };
 
-    console.log('✅ Final Merchant Analytics Result:', result);
-    
+    console.log('✅ Merchant Analytics Result:', result);
     res.status(200).json(result);
 
   } catch (error) {
@@ -656,6 +651,468 @@ export const getMerchantAnalytics = async (req, res) => {
     });
   }
 };
+
+// Merchant transactions endpoint
+export const getMerchantTransactions = async (req, res) => {
+  try {
+    const { merchantId, status, timeFilter = 'today', page = 1, limit = 10, startDate, endDate } = req.query;
+
+    console.log('🟡 Merchant Transactions Request:', { merchantId, status, timeFilter });
+
+    if (!merchantId) {
+      return res.status(400).json({ message: 'Merchant ID is required' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(merchantId)) {
+      return res.status(400).json({ message: 'Invalid merchant ID format' });
+    }
+
+    const objectId = new mongoose.Types.ObjectId(merchantId);
+    
+    let matchQuery = {
+      merchantId: objectId
+    };
+
+    // Status filter
+    if (status && status !== 'all') {
+      const statusMapping = {
+        'SUCCESS': ['Success', 'SUCCESS'],
+        'PENDING': ['Pending', 'PENDING'],
+        'FAILED': ['Failed', 'FAILED'],
+        'REFUND': ['Refund', 'REFUND']
+      };
+      
+      if (statusMapping[status]) {
+        matchQuery.status = { $in: statusMapping[status] };
+      }
+    }
+
+    // Date range filter
+    const dateRange = getDateRange(timeFilter, startDate, endDate);
+    if (Object.keys(dateRange).length > 0) {
+      matchQuery.createdAt = dateRange.createdAt;
+    }
+
+    console.log('🔍 Merchant Transactions Match Query:', JSON.stringify(matchQuery, null, 2));
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const transactions = await Transaction.aggregate([
+      { $match: matchQuery },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'merchantId',
+          foreignField: '_id',
+          as: 'merchantInfo'
+        }
+      },
+      {
+        $unwind: {
+          path: '$merchantInfo',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $project: {
+          transactionId: 1,
+          merchantOrderId: 1,
+          amount: 1,
+          status: 1,
+          currency: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          merchantName: {
+            $cond: {
+              if: { 
+                $and: [
+                  "$merchantInfo",
+                  "$merchantInfo.company",
+                  { $ne: ["$merchantInfo.company", ""] }
+                ]
+              },
+              then: "$merchantInfo.company",
+              else: {
+                $cond: {
+                  if: { 
+                    $and: [
+                      "$merchantInfo",
+                      "$merchantInfo.firstname", 
+                      "$merchantInfo.lastname"
+                    ]
+                  },
+                  then: { $concat: ["$merchantInfo.firstname", " ", "$merchantInfo.lastname"] },
+                  else: "Unknown Merchant"
+                }
+              }
+            }
+          }
+        }
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: parseInt(limit) }
+    ]);
+
+    const totalDocs = await Transaction.countDocuments(matchQuery);
+
+    console.log(`✅ Found ${transactions.length} transactions for merchant`);
+
+    res.status(200).json({
+      docs: transactions,
+      totalDocs,
+      limit: parseInt(limit),
+      page: parseInt(page),
+      totalPages: Math.ceil(totalDocs / parseInt(limit)),
+      hasNextPage: page * limit < totalDocs,
+      hasPrevPage: page > 1
+    });
+
+  } catch (error) {
+    console.error('❌ Merchant Transactions Error:', error);
+    res.status(500).json({ 
+      message: 'Server Error', 
+      error: error.message
+    });
+  }
+};
+
+// Merchant sales report endpoint
+export const getMerchantSalesReport = async (req, res) => {
+  try {
+    const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
+
+    console.log('🟡 Merchant Sales Report Request:', { merchantId, timeFilter });
+
+    if (!merchantId) {
+      return res.status(400).json({ message: 'Merchant ID is required' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(merchantId)) {
+      return res.status(400).json({ message: 'Invalid merchant ID format' });
+    }
+
+    const objectId = new mongoose.Types.ObjectId(merchantId);
+    
+    let matchQuery = {
+      merchantId: objectId
+    };
+
+    // Date range filter
+    const dateRange = getDateRange(timeFilter, startDate, endDate);
+    if (Object.keys(dateRange).length > 0) {
+      matchQuery.createdAt = dateRange.createdAt;
+    }
+
+    console.log('🔍 Merchant Sales Report Match Query:', JSON.stringify(matchQuery, null, 2));
+
+    const groupById = getGroupingForSalesReport(timeFilter);
+
+    const salesReport = await Transaction.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: groupById,
+          totalIncome: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["Success", "SUCCESS"]] }, "$amount", 0]
+            }
+          },
+          totalCostOfSales: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["Failed", "FAILED"]] }, "$amount", 0]
+            }
+          },
+          totalRefundAmount: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, "$amount", 0]
+            }
+          },
+          totalPendingAmount: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["Pending", "PENDING"]] }, "$amount", 0]
+            }
+          },
+          successCount: {
+            $sum: { $cond: [{ $in: ["$status", ["Success", "SUCCESS"]] }, 1, 0] }
+          },
+          failedCount: {
+            $sum: { $cond: [{ $in: ["$status", ["Failed", "FAILED"]] }, 1, 0] }
+          },
+          pendingCount: {
+            $sum: { $cond: [{ $in: ["$status", ["Pending", "PENDING"]] }, 1, 0] }
+          },
+          refundCount: {
+            $sum: { $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, 1, 0] }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          date: {
+            $dateFromParts: {
+              year: "$_id.year",
+              month: "$_id.month",
+              day: { $ifNull: ["$_id.day", 1] },
+              hour: { $ifNull: ["$_id.hour", 0] }
+            }
+          },
+          totalIncome: { $ifNull: ["$totalIncome", 0] },
+          totalCostOfSales: { $ifNull: ["$totalCostOfSales", 0] },
+          totalRefundAmount: { $ifNull: ["$totalRefundAmount", 0] },
+          totalPendingAmount: { $ifNull: ["$totalPendingAmount", 0] },
+          successCount: 1,
+          failedCount: 1,
+          pendingCount: 1,
+          refundCount: 1
+        }
+      },
+      { $sort: { date: 1 } }
+    ]);
+
+    console.log(`✅ Merchant sales report fetched: ${salesReport.length} entries`);
+    res.status(200).json(salesReport);
+
+  } catch (error) {
+    console.error('❌ Merchant Sales Report Error:', error);
+    res.status(500).json({
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// Merchant transactions endpoint
+// export const getMerchantTransactions = async (req, res) => {
+//   try {
+//     const { merchantId, status, timeFilter = 'today', page = 1, limit = 10, startDate, endDate } = req.query;
+
+//     console.log('🟡 Merchant Transactions Request:', { merchantId, status, timeFilter });
+
+//     if (!merchantId) {
+//       return res.status(400).json({ message: 'Merchant ID is required' });
+//     }
+
+//     if (!mongoose.Types.ObjectId.isValid(merchantId)) {
+//       return res.status(400).json({ message: 'Invalid merchant ID format' });
+//     }
+
+//     const objectId = new mongoose.Types.ObjectId(merchantId);
+    
+//     let matchQuery = {
+//       merchantId: objectId
+//     };
+
+//     // Status filter
+//     if (status && status !== 'all') {
+//       const statusMapping = {
+//         'SUCCESS': ['Success', 'SUCCESS'],
+//         'PENDING': ['Pending', 'PENDING'],
+//         'FAILED': ['Failed', 'FAILED'],
+//         'REFUND': ['Refund', 'REFUND']
+//       };
+      
+//       if (statusMapping[status]) {
+//         matchQuery.status = { $in: statusMapping[status] };
+//       }
+//     }
+
+//     // Date range filter
+//     const dateRange = getDateRange(timeFilter, startDate, endDate);
+//     if (Object.keys(dateRange).length > 0) {
+//       matchQuery.createdAt = dateRange.createdAt;
+//     }
+
+//     console.log('🔍 Merchant Transactions Match Query:', JSON.stringify(matchQuery, null, 2));
+
+//     const skip = (parseInt(page) - 1) * parseInt(limit);
+
+//     const transactions = await Transaction.aggregate([
+//       { $match: matchQuery },
+//       {
+//         $lookup: {
+//           from: 'users',
+//           localField: 'merchantId',
+//           foreignField: '_id',
+//           as: 'merchantInfo'
+//         }
+//       },
+//       {
+//         $unwind: {
+//           path: '$merchantInfo',
+//           preserveNullAndEmptyArrays: true
+//         }
+//       },
+//       {
+//         $project: {
+//           transactionId: 1,
+//           merchantOrderId: 1,
+//           amount: 1,
+//           status: 1,
+//           currency: 1,
+//           createdAt: 1,
+//           updatedAt: 1,
+//           merchantName: {
+//             $cond: {
+//               if: { 
+//                 $and: [
+//                   "$merchantInfo",
+//                   "$merchantInfo.company",
+//                   { $ne: ["$merchantInfo.company", ""] }
+//                 ]
+//               },
+//               then: "$merchantInfo.company",
+//               else: {
+//                 $cond: {
+//                   if: { 
+//                     $and: [
+//                       "$merchantInfo",
+//                       "$merchantInfo.firstname", 
+//                       "$merchantInfo.lastname"
+//                     ]
+//                   },
+//                   then: { $concat: ["$merchantInfo.firstname", " ", "$merchantInfo.lastname"] },
+//                   else: "Unknown Merchant"
+//                 }
+//               }
+//             }
+//           }
+//         }
+//       },
+//       { $sort: { createdAt: -1 } },
+//       { $skip: skip },
+//       { $limit: parseInt(limit) }
+//     ]);
+
+//     const totalDocs = await Transaction.countDocuments(matchQuery);
+
+//     console.log(`✅ Found ${transactions.length} transactions for merchant`);
+
+//     res.status(200).json({
+//       docs: transactions,
+//       totalDocs,
+//       limit: parseInt(limit),
+//       page: parseInt(page),
+//       totalPages: Math.ceil(totalDocs / parseInt(limit)),
+//       hasNextPage: page * limit < totalDocs,
+//       hasPrevPage: page > 1
+//     });
+
+//   } catch (error) {
+//     console.error('❌ Merchant Transactions Error:', error);
+//     res.status(500).json({ 
+//       message: 'Server Error', 
+//       error: error.message
+//     });
+//   }
+// };
+
+// // Merchant sales report endpoint
+// export const getMerchantSalesReport = async (req, res) => {
+//   try {
+//     const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
+
+//     console.log('🟡 Merchant Sales Report Request:', { merchantId, timeFilter });
+
+//     if (!merchantId) {
+//       return res.status(400).json({ message: 'Merchant ID is required' });
+//     }
+
+//     if (!mongoose.Types.ObjectId.isValid(merchantId)) {
+//       return res.status(400).json({ message: 'Invalid merchant ID format' });
+//     }
+
+//     const objectId = new mongoose.Types.ObjectId(merchantId);
+    
+//     let matchQuery = {
+//       merchantId: objectId
+//     };
+
+//     // Date range filter
+//     const dateRange = getDateRange(timeFilter, startDate, endDate);
+//     if (Object.keys(dateRange).length > 0) {
+//       matchQuery.createdAt = dateRange.createdAt;
+//     }
+
+//     console.log('🔍 Merchant Sales Report Match Query:', JSON.stringify(matchQuery, null, 2));
+
+//     const groupById = getGroupingForSalesReport(timeFilter);
+
+//     const salesReport = await Transaction.aggregate([
+//       { $match: matchQuery },
+//       {
+//         $group: {
+//           _id: groupById,
+//           totalIncome: {
+//             $sum: {
+//               $cond: [{ $in: ["$status", ["Success", "SUCCESS"]] }, "$amount", 0]
+//             }
+//           },
+//           totalCostOfSales: {
+//             $sum: {
+//               $cond: [{ $in: ["$status", ["Failed", "FAILED"]] }, "$amount", 0]
+//             }
+//           },
+//           totalRefundAmount: {
+//             $sum: {
+//               $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, "$amount", 0]
+//             }
+//           },
+//           totalPendingAmount: {
+//             $sum: {
+//               $cond: [{ $in: ["$status", ["Pending", "PENDING"]] }, "$amount", 0]
+//             }
+//           },
+//           successCount: {
+//             $sum: { $cond: [{ $in: ["$status", ["Success", "SUCCESS"]] }, 1, 0] }
+//           },
+//           failedCount: {
+//             $sum: { $cond: [{ $in: ["$status", ["Failed", "FAILED"]] }, 1, 0] }
+//           },
+//           pendingCount: {
+//             $sum: { $cond: [{ $in: ["$status", ["Pending", "PENDING"]] }, 1, 0] }
+//           },
+//           refundCount: {
+//             $sum: { $cond: [{ $in: ["$status", ["Refund", "REFUND"]] }, 1, 0] }
+//           }
+//         }
+//       },
+//       {
+//         $project: {
+//           _id: 0,
+//           date: {
+//             $dateFromParts: {
+//               year: "$_id.year",
+//               month: "$_id.month",
+//               day: { $ifNull: ["$_id.day", 1] },
+//               hour: { $ifNull: ["$_id.hour", 0] }
+//             }
+//           },
+//           totalIncome: { $ifNull: ["$totalIncome", 0] },
+//           totalCostOfSales: { $ifNull: ["$totalCostOfSales", 0] },
+//           totalRefundAmount: { $ifNull: ["$totalRefundAmount", 0] },
+//           totalPendingAmount: { $ifNull: ["$totalPendingAmount", 0] },
+//           successCount: 1,
+//           failedCount: 1,
+//           pendingCount: 1,
+//           refundCount: 1
+//         }
+//       },
+//       { $sort: { date: 1 } }
+//     ]);
+
+//     console.log(`✅ Merchant sales report fetched: ${salesReport.length} entries`);
+//     res.status(200).json(salesReport);
+
+//   } catch (error) {
+//     console.error('❌ Merchant Sales Report Error:', error);
+//     res.status(500).json({
+//       message: 'Server Error',
+//       error: error.message
+//     });
+//   }
+// };
 
 // Debug endpoint
 export const checkMerchantData = async (req, res) => {
