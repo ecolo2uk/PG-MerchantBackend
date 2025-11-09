@@ -283,14 +283,14 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    // ✅ UPDATE MINIMUM AMOUNT FOR ENPAY
-    const MINIMUM_AMOUNT = 600; // Enpay का minimum amount
-    if (parsedAmount < MINIMUM_AMOUNT) {
-      return res.status(400).json({
-        success: false,
-        message: `Amount must be at least ${MINIMUM_AMOUNT} INR for Enpay transactions`
-      });
-    }
+    // ✅ TEMPORARILY REMOVE MINIMUM AMOUNT FOR TESTING
+    // const MINIMUM_AMOUNT = 1000;
+    // if (parsedAmount < MINIMUM_AMOUNT) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: `Amount must be at least ${MINIMUM_AMOUNT} INR for Enpay transactions`
+    //   });
+    // }
 
     const transactionId = generateTransactionId();
     const vendorRefId = generateVendorRefId();
@@ -322,7 +322,7 @@ export const generateDynamicQR = async (req, res) => {
     
     console.log('✅ Transaction saved successfully:', savedTransaction.transactionId);
 
-    // ✅ ENPAY API CALL - NOW IT WILL WORK!
+    // ✅ ENPAY API CALL - WITH DEBUGGING
     console.log('🟡 Calling Enpay API for QR generation...');
     const enpayResult = await generateEnpayDynamicQR({
       amount: parsedAmount,
@@ -331,10 +331,11 @@ export const generateDynamicQR = async (req, res) => {
       merchantName
     });
 
+    console.log('🟡 Enpay API Result:', enpayResult);
+
     // Check if Enpay API was successful
     if (!enpayResult.success) {
-      console.log('❌ Enpay API failed:', enpayResult.message);
-      console.log('🔄 Using fallback QR generation...');
+      console.log('❌ Enpay API failed, using fallback QR generation...');
       
       // ✅ FALLBACK: Generate QR without Enpay
       const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
@@ -453,6 +454,78 @@ export const testEnpayDirectAPI = async (req, res) => {
   }
 };
 
+// ✅ FIND EXACT MINIMUM AMOUNT
+export const testAmountThreshold = async (req, res) => {
+  try {
+    console.log('🧪 Testing different amounts to find minimum threshold...');
+    
+    const amountsToTest = [1000, 2000, 5000, 10000, 20000, 50000];
+    const testResults = [];
+
+    for (const amount of amountsToTest) {
+      try {
+        const testPayload = {
+          merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF',
+          txnAmount: amount.toString(),
+          txnNote: 'Test Amount Threshold',
+          txnRefId: `AMTTEST${Date.now()}${amount}`
+        };
+
+        console.log(`🟡 Testing amount: ${amount}`);
+        
+        const response = await axios.post(
+          'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
+          testPayload,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Merchant-Key': '0851439b-03df-4983-88d6-32399b1e4514',
+              'X-Merchant-Secret': 'bae97f533a594af9bf3dded47f09c34e15e053d1'
+            },
+            timeout: 15000
+          }
+        );
+
+        testResults.push({
+          amount,
+          status: 'SUCCESS',
+          response: response.data
+        });
+
+        console.log(`✅ Amount ${amount} WORKING:`, response.data.code === 0 ? 'QR Generated' : 'API Error');
+
+        if (response.data.code === 0) {
+          console.log(`🎯 MINIMUM AMOUNT FOUND: ${amount}`);
+          break;
+        }
+
+      } catch (error) {
+        console.log(`❌ Amount ${amount} FAILED:`, error.response?.data?.message || error.message);
+        testResults.push({
+          amount,
+          status: 'FAILED',
+          error: error.response?.data || error.message
+        });
+      }
+    }
+
+    const workingAmount = testResults.find(r => r.status === 'SUCCESS' && r.response?.code === 0);
+
+    res.json({
+      success: !!workingAmount,
+      testResults,
+      workingAmount: workingAmount?.amount,
+      message: workingAmount ? `Minimum amount found: ${workingAmount.amount}` : 'No working amount found'
+    });
+
+  } catch (error) {
+    console.error('❌ Amount Test Failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
 
 export const generateDefaultQR = async (req, res) => {
   try {

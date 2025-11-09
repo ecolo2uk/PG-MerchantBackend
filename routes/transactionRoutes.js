@@ -9,7 +9,8 @@ import {
   testEnpayConnection,
   testEnpayDirectAPI,
   testAllMerchantIDs, // ✅ ADD THIS
-  simpleDebug
+  simpleDebug,
+  testAmountThreshold
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
@@ -25,5 +26,6 @@ router.get("/test-enpay", authenticateMerchant, testEnpayConnection);
 router.get("/test-enpay-direct", authenticateMerchant, testEnpayDirectAPI);
 router.get("/test-merchant-ids", authenticateMerchant, testAllMerchantIDs); // ✅ ADD THIS
 router.get("/debug", authenticateMerchant, simpleDebug);
-
+// routes में add करें
+router.get("/test-amount-threshold", authenticateMerchant, testAmountThreshold);
 export default router;
