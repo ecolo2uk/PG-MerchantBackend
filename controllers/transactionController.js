@@ -1,280 +1,12 @@
 import Transaction from '../models/Transaction.js';
 import mongoose from 'mongoose';
 import { generateEnpayDynamicQR, generateEnpayDefaultQR } from '../services/enpayService.js';
+import axios from 'axios'; // ✅ IMPORT AXIOS PROPERLY
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-export const generateDynamicQR = async (req, res) => {
-  let transaction;
-  try {
-    const { amount, txnNote = 'Payment for Order' } = req.body;
-    const merchantId = req.user.id;
-    const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
-
-    console.log('🟡 Generate Dynamic QR - Start:', { amount, merchantId, merchantName });
-
-    const parsedAmount = parseFloat(amount);
-
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Valid amount is required and must be greater than 0'
-      });
-    }
-
-    // ✅ ENFORCE ENPAY MINIMUM AMOUNT
-    const MINIMUM_ENPAY_AMOUNT = 100;
-    if (parsedAmount < MINIMUM_ENPAY_AMOUNT) {
-      return res.status(400).json({
-        success: false,
-        message: `Transaction amount must be at least ${MINIMUM_ENPAY_AMOUNT} INR`
-      });
-    }
-
-    const transactionId = generateTransactionId();
-    const vendorRefId = generateVendorRefId();
-
-    // Create transaction data - SIMPLIFIED
-    const transactionData = {
-      transactionId,
-      merchantId: merchantId,
-      merchantName,
-      amount: parsedAmount,
-      status: 'INITIATED', // ✅ FIXED: Use INITIATED instead of WAITING FOR PAYMENT
-      createdAt: new Date().toISOString(),
-      "Commission Amount": 0,
-      mid: req.user.mid || 'DEFAULT_MID',
-      "Settlement Status": "UNSETTLED",
-      "Vendor Ref ID": vendorRefId,
-      txnNote,
-      upiId: 'enpay1.skypal@fino',
-      merchantVpa: 'enpay1.skypal@fino',
-      merchantOrderId: `ORDER${Date.now()}`,
-      txnRefId: transactionId,
-      merchantHashId: 'MERCOSHESYYCDAYOLFTZR8MF'
-    };
-
-    console.log('🟡 Transaction Data Before Save:', transactionData);
-
-    // ✅ FIRST SAVE TRANSACTION TO DATABASE
-    transaction = new Transaction(transactionData);
-    let savedTransaction = await transaction.save();
-    console.log('✅ Transaction saved to database:', savedTransaction.transactionId);
-
-    // ✅ THEN CALL ENPAY API
-    console.log('🟡 Calling Enpay API...');
-    const enpayResult = await generateEnpayDynamicQR(transactionData);
-
-    if (enpayResult.success) {
-      // ✅ UPDATE TRANSACTION WITH ENPAY DATA
-      savedTransaction.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
-      savedTransaction.enpayQRCode = enpayResult.enpayQRCode;
-      savedTransaction.enpayTxnId = enpayResult.enpayTxnId;
-      
-      // Generate local QR as well
-      const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
-
-      savedTransaction.qrCode = qrCodeUrl;
-      savedTransaction.paymentUrl = paymentUrl;
-
-      await savedTransaction.save();
-      console.log('✅ Transaction updated with Enpay data');
-
-    } else {
-      // ✅ UPDATE TRANSACTION WITH ENPAY FAILURE
-      savedTransaction.enpayInitiationStatus = 'ATTEMPTED_FAILED';
-      savedTransaction.enpayError = enpayResult.error;
-      
-      // Generate local QR as fallback
-      const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
-
-      savedTransaction.qrCode = qrCodeUrl;
-      savedTransaction.paymentUrl = paymentUrl;
-
-      await savedTransaction.save();
-      console.log('✅ Transaction updated with fallback QR');
-    }
-
-    // ✅ RELOAD THE SAVED TRANSACTION
-    savedTransaction = await Transaction.findById(savedTransaction._id);
-
-    res.status(200).json({
-      success: true,
-      transactionId: savedTransaction.transactionId,
-      qrCode: savedTransaction.qrCode,
-      paymentUrl: savedTransaction.paymentUrl,
-      amount: savedTransaction.amount,
-      enpayTxnId: savedTransaction.enpayTxnId,
-      status: savedTransaction.status, // ✅ IMPORTANT: Send status back
-      message: enpayResult.success ? 'QR generated with Enpay' : 'QR generated with fallback method',
-      fallback: !enpayResult.success
-    });
-
-  } catch (error) {
-    console.error('❌ Generate QR Error:', error);
-    
-    // If transaction was created but something else failed, update it
-    if (transaction && transaction._id) {
-      try {
-        await Transaction.findByIdAndUpdate(transaction._id, {
-          status: 'FAILED',
-          enpayInitiationStatus: 'ATTEMPTED_FAILED',
-          enpayError: error.message
-        });
-      } catch (updateError) {
-        console.error('❌ Failed to update transaction status:', updateError);
-      }
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate QR',
-      error: error.message
-    });
-  }
-};
-
-export const generateDefaultQR = async (req, res) => {
-  let transaction;
-  try {
-    console.log('🔵 generateDefaultQR - Start');
-
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({
-        success: false,
-        message: 'User authentication required'
-      });
-    }
-
-    const merchantId = req.user.id;
-    const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
-
-    const transactionId = `DFT${Date.now()}`;
-    const vendorRefId = generateVendorRefId();
-
-    // ✅ FIXED: Use minimum allowed amount for default QR
-    const DEFAULT_ENPAY_AMOUNT = 100;
-
-    const transactionData = {
-      transactionId,
-      merchantId: merchantId,
-      merchantName,
-      amount: DEFAULT_ENPAY_AMOUNT,
-      "Commission Amount": 0,
-      createdAt: new Date().toISOString(),
-      mid: req.user.mid || 'DEFAULT_MID',
-      "Settlement Status": "UNSETTLED",
-      status: 'INITIATED', // ✅ FIXED: Use INITIATED
-      "Vendor Ref ID": vendorRefId,
-      txnNote: 'Default QR Code',
-      upiId: 'enpay1.skypal@fino',
-      merchantVpa: 'enpay1.skypal@fino',
-      merchantOrderId: `ORDER${Date.now()}`,
-      txnRefId: transactionId,
-      merchantHashId: 'MERCOSHESYYCDAYOLFTZR8MF'
-    };
-
-    console.log('🔵 Default QR Transaction Data:', transactionData);
-
-    // ✅ FIRST SAVE TRANSACTION
-    transaction = new Transaction(transactionData);
-    let savedTransaction = await transaction.save();
-    console.log('✅ Default QR Transaction saved:', savedTransaction.transactionId);
-
-    // ✅ CALL ENPAY API
-    const enpayResult = await generateEnpayDefaultQR(transactionData);
-
-    if (enpayResult.success) {
-      savedTransaction.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
-      savedTransaction.enpayQRCode = enpayResult.enpayQRCode;
-      savedTransaction.enpayTxnId = enpayResult.enpayTxnId;
-    } else {
-      savedTransaction.enpayInitiationStatus = 'ATTEMPTED_FAILED';
-      savedTransaction.enpayError = enpayResult.error;
-    }
-
-    // Generate local QR
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${DEFAULT_ENPAY_AMOUNT}&tn=Default%20QR%20Code`;
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
-
-    savedTransaction.qrCode = qrCodeUrl;
-    savedTransaction.paymentUrl = paymentUrl;
-
-    await savedTransaction.save();
-
-    // ✅ RELOAD THE SAVED TRANSACTION
-    savedTransaction = await Transaction.findById(savedTransaction._id);
-
-    console.log('✅ Default QR completed successfully');
-
-    res.status(200).json({
-      success: true,
-      transactionId: savedTransaction.transactionId,
-      qrCode: savedTransaction.qrCode,
-      paymentUrl: savedTransaction.paymentUrl,
-      amount: savedTransaction.amount,
-      enpayTxnId: savedTransaction.enpayTxnId,
-      status: savedTransaction.status, // ✅ IMPORTANT
-      isDefault: true,
-      message: 'Default QR generated successfully'
-    });
-
-  } catch (error) {
-    console.error('❌ generateDefaultQR Error:', error);
-    
-    if (transaction && transaction._id) {
-      try {
-        await Transaction.findByIdAndUpdate(transaction._id, {
-          status: 'FAILED',
-          enpayInitiationStatus: 'ATTEMPTED_FAILED',
-          enpayError: error.message
-        });
-      } catch (updateError) {
-        console.error('❌ Failed to update default transaction status:', updateError);
-      }
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate default QR',
-      error: error.message
-    });
-  }
-};
-
-export const getTransactions = async (req, res) => {
-  try {
-    const merchantId = req.user.id;
-    console.log("🟡 Fetching transactions for merchant:", merchantId);
-
-    // ✅ IMPROVED QUERY - Handle both string and ObjectId
-    const transactions = await Transaction.find({ 
-      $or: [
-        { merchantId: merchantId },
-        { merchantId: { $toString: merchantId } }
-      ]
-    })
-    .sort({ createdAt: -1 })
-    .limit(100);
-
-    console.log(`✅ Found ${transactions.length} transactions for merchant ${merchantId}`);
-
-    res.json(transactions);
-
-  } catch (error) {
-    console.error("❌ Error fetching transactions:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch transactions",
-      error: error.message
-    });
-  }
-};
-
-// transactionController.js मध्ये add करा
+// ✅ FIXED testEnpayConnection function
 export const testEnpayConnection = async (req, res) => {
   try {
     console.log('🧪 Testing Enpay connection directly...');
@@ -286,9 +18,8 @@ export const testEnpayConnection = async (req, res) => {
       txnRefId: `TEST${Date.now()}`
     };
 
-    const axios = require('axios');
-    
     console.log('🟡 Sending request to Enpay API...');
+    
     const response = await axios.post(
       'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
       testPayload,
@@ -327,6 +58,237 @@ export const testEnpayConnection = async (req, res) => {
   }
 };
 
+// ✅ SIMPLIFIED generateDynamicQR function
+export const generateDynamicQR = async (req, res) => {
+  try {
+    const { amount, txnNote = 'Payment for Order' } = req.body;
+    const merchantId = req.user.id;
+    const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
+
+    console.log('🟡 Generate Dynamic QR - Start:', { amount, merchantId, merchantName });
+
+    const parsedAmount = parseFloat(amount);
+
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required and must be greater than 0'
+      });
+    }
+
+    // ✅ ENFORCE MINIMUM AMOUNT
+    const MINIMUM_AMOUNT = 100;
+    if (parsedAmount < MINIMUM_AMOUNT) {
+      return res.status(400).json({
+        success: false,
+        message: `Amount must be at least ${MINIMUM_AMOUNT} INR`
+      });
+    }
+
+    const transactionId = generateTransactionId();
+    const vendorRefId = generateVendorRefId();
+
+    // ✅ SIMPLE TRANSACTION DATA
+    const transactionData = {
+      transactionId,
+      merchantId: merchantId,
+      merchantName,
+      amount: parsedAmount,
+      status: 'INITIATED',
+      createdAt: new Date().toISOString(),
+      "Commission Amount": 0,
+      mid: req.user.mid || 'DEFAULT_MID',
+      "Settlement Status": "UNSETTLED",
+      "Vendor Ref ID": vendorRefId,
+      txnNote,
+      upiId: 'enpay1.skypal@fino',
+      merchantVpa: 'enpay1.skypal@fino',
+      merchantOrderId: `ORDER${Date.now()}`,
+      txnRefId: transactionId
+    };
+
+    console.log('🟡 Creating transaction:', transactionData);
+
+    // ✅ SAVE TRANSACTION FIRST
+    const transaction = new Transaction(transactionData);
+    const savedTransaction = await transaction.save();
+    
+    console.log('✅ Transaction saved successfully:', savedTransaction.transactionId);
+
+    // ✅ GENERATE QR CODE URL
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
+
+    // ✅ UPDATE TRANSACTION WITH QR CODE
+    savedTransaction.qrCode = qrCodeUrl;
+    savedTransaction.paymentUrl = paymentUrl;
+    await savedTransaction.save();
+
+    console.log('✅ QR Code generated successfully');
+
+    res.status(200).json({
+      success: true,
+      transactionId: savedTransaction.transactionId,
+      qrCode: qrCodeUrl,
+      paymentUrl: paymentUrl,
+      amount: savedTransaction.amount,
+      status: savedTransaction.status,
+      message: 'QR generated successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Generate QR Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate QR',
+      error: error.message
+    });
+  }
+};
+
+// ✅ SIMPLIFIED generateDefaultQR function
+export const generateDefaultQR = async (req, res) => {
+  try {
+    console.log('🔵 Generate Default QR - Start');
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    const merchantId = req.user.id;
+    const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
+
+    const transactionId = `DFT${Date.now()}`;
+    const vendorRefId = generateVendorRefId();
+
+    // ✅ DEFAULT AMOUNT
+    const DEFAULT_AMOUNT = 100;
+
+    const transactionData = {
+      transactionId,
+      merchantId: merchantId,
+      merchantName,
+      amount: DEFAULT_AMOUNT,
+      "Commission Amount": 0,
+      createdAt: new Date().toISOString(),
+      mid: req.user.mid || 'DEFAULT_MID',
+      "Settlement Status": "UNSETTLED",
+      status: 'INITIATED',
+      "Vendor Ref ID": vendorRefId,
+      txnNote: 'Default QR Code',
+      upiId: 'enpay1.skypal@fino',
+      merchantVpa: 'enpay1.skypal@fino',
+      merchantOrderId: `ORDER${Date.now()}`,
+      txnRefId: transactionId
+    };
+
+    console.log('🔵 Creating default transaction:', transactionData);
+
+    // ✅ SAVE TRANSACTION
+    const transaction = new Transaction(transactionData);
+    const savedTransaction = await transaction.save();
+    
+    console.log('✅ Default transaction saved:', savedTransaction.transactionId);
+
+    // ✅ GENERATE DEFAULT QR CODE
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${DEFAULT_AMOUNT}&tn=Default%20QR%20Code`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
+
+    // ✅ UPDATE WITH QR CODE
+    savedTransaction.qrCode = qrCodeUrl;
+    savedTransaction.paymentUrl = paymentUrl;
+    await savedTransaction.save();
+
+    console.log('✅ Default QR generated successfully');
+
+    res.status(200).json({
+      success: true,
+      transactionId: savedTransaction.transactionId,
+      qrCode: qrCodeUrl,
+      paymentUrl: paymentUrl,
+      amount: savedTransaction.amount,
+      status: savedTransaction.status,
+      isDefault: true,
+      message: 'Default QR generated successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Generate Default QR Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate default QR',
+      error: error.message
+    });
+  }
+};
+
+// ✅ FIXED getTransactions function
+export const getTransactions = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    console.log("🟡 Fetching transactions for merchant:", merchantId);
+
+    // ✅ SIMPLE QUERY - only by merchantId
+    const transactions = await Transaction.find({ 
+      merchantId: merchantId 
+    })
+    .sort({ createdAt: -1 })
+    .limit(50);
+
+    console.log(`✅ Found ${transactions.length} transactions`);
+
+    res.json(transactions);
+
+  } catch (error) {
+    console.error("❌ Error fetching transactions:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch transactions",
+      error: error.message
+    });
+  }
+};
+
+// ✅ SIMPLE DEBUG FUNCTION
+export const simpleDebug = async (req, res) => {
+  try {
+    console.log('🔧 Simple Debug Endpoint Hit');
+    
+    const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
+    
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const hasTransactions = collections.some(col => col.name === 'transactions');
+    
+    const sampleTransaction = await Transaction.findOne();
+    const transactionCount = await Transaction.countDocuments();
+    
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      database: {
+        status: dbStatus,
+        hasTransactionsCollection: hasTransactions,
+        transactionCount: transactionCount,
+        sampleTransaction: sampleTransaction
+      },
+      merchant: req.user ? {
+        id: req.user.id,
+        name: req.user.firstname + ' ' + (req.user.lastname || '')
+      } : 'No merchant info',
+      message: 'Debug information collected'
+    });
+    
+  } catch (error) {
+    console.error('❌ Simple Debug Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
 // ... rest of your controller functions remain the same
 // export const getTransactions = async (req, res) => {
 //   try {
@@ -843,40 +805,3 @@ export const enpayDebugScript = async (req, res) => {
   res.json(debugInfo);
 };
 
-export const simpleDebug = async (req, res) => {
-  try {
-    console.log('🔧 Simple Debug Endpoint Hit');
-    
-    // Check database connection
-    const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
-    
-    // Check if transactions collection exists
-    const collections = await mongoose.connection.db.listCollections().toArray();
-    const hasTransactions = collections.some(col => col.name === 'transactions');
-    
-    // Get sample transaction
-    const sampleTransaction = await Transaction.findOne();
-    
-    res.json({
-      success: true,
-      timestamp: new Date().toISOString(),
-      database: {
-        status: dbStatus,
-        hasTransactionsCollection: hasTransactions,
-        sampleTransaction: sampleTransaction
-      },
-      merchant: req.user ? {
-        id: req.user.id,
-        name: req.user.firstname + ' ' + (req.user.lastname || '')
-      } : 'No merchant info',
-      message: 'Debug information collected'
-    });
-    
-  } catch (error) {
-    console.error('❌ Simple Debug Error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-};
