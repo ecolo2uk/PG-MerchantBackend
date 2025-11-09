@@ -17,7 +17,8 @@ const transactionSchema = new mongoose.Schema({
   },
   amount: {
     type: Number,
-    required: true
+    required: false, // ✅ CHANGED: Not required for default QR
+    default: null
   },
   status: {
     type: String,
@@ -36,6 +37,11 @@ const transactionSchema = new mongoose.Schema({
   paymentUrl: String,
   txnNote: String,
   upiId: { type: String, default: 'enpay1.skypal@fino' },
+    isDefaultQR: {
+    type: Boolean,
+    default: false
+  },
+  
 
   // Enpay integration
   enpayInitiationStatus: {

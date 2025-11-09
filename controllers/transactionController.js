@@ -58,6 +58,70 @@ export const testEnpayConnection = async (req, res) => {
   }
 };
 
+
+export const getTransactions = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    console.log("🟡 Fetching transactions for merchant:", merchantId);
+
+    const transactions = await Transaction.find({ 
+      merchantId: merchantId 
+    })
+    .sort({ createdAt: -1 })
+    .limit(50);
+
+    console.log(`✅ Found ${transactions.length} transactions for merchant ${merchantId}`);
+
+    res.json(transactions);
+
+  } catch (error) {
+    console.error("❌ Error fetching transactions:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch transactions",
+      error: error.message
+    });
+  }
+};
+
+export const simpleDebug = async (req, res) => {
+  try {
+    console.log('🔧 Simple Debug Endpoint Hit');
+    
+    const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
+    
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const hasTransactions = collections.some(col => col.name === 'transactions');
+    
+    const sampleTransaction = await Transaction.findOne();
+    const transactionCount = await Transaction.countDocuments();
+    
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      database: {
+        status: dbStatus,
+        hasTransactionsCollection: hasTransactions,
+        transactionCount: transactionCount,
+        sampleTransaction: sampleTransaction
+      },
+      merchant: req.user ? {
+        id: req.user.id,
+        name: req.user.firstname + ' ' + (req.user.lastname || '')
+      } : 'No merchant info',
+      message: 'Debug information collected'
+    });
+    
+  } catch (error) {
+    console.error('❌ Simple Debug Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};  
+
+
 // ✅ SIMPLIFIED generateDynamicQR function
 export const generateDynamicQR = async (req, res) => {
   try {
@@ -146,7 +210,7 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-// ✅ SIMPLIFIED generateDefaultQR function
+// ✅ FIXED generateDefaultQR - WITHOUT AMOUNT
 export const generateDefaultQR = async (req, res) => {
   try {
     console.log('🔵 Generate Default QR - Start');
@@ -162,17 +226,15 @@ export const generateDefaultQR = async (req, res) => {
     const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
 
     const transactionId = `DFT${Date.now()}`;
-    const vendorRefId = generateVendorRefId();
+    const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-    // ✅ DEFAULT AMOUNT
-    const DEFAULT_AMOUNT = 100;
-
+    // ✅ NO AMOUNT FIELD - Only basic transaction data
     const transactionData = {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      amount: DEFAULT_AMOUNT,
-      "Commission Amount": 0,
+      // ❌ REMOVED: amount field
+      // ❌ REMOVED: Commission Amount field  
       createdAt: new Date().toISOString(),
       mid: req.user.mid || 'DEFAULT_MID',
       "Settlement Status": "UNSETTLED",
@@ -182,19 +244,21 @@ export const generateDefaultQR = async (req, res) => {
       upiId: 'enpay1.skypal@fino',
       merchantVpa: 'enpay1.skypal@fino',
       merchantOrderId: `ORDER${Date.now()}`,
-      txnRefId: transactionId
+      txnRefId: transactionId,
+      isDefaultQR: true // ✅ Flag to identify default QR
     };
 
-    console.log('🔵 Creating default transaction:', transactionData);
+    console.log('🔵 Creating default QR transaction (no amount):', transactionData);
 
-    // ✅ SAVE TRANSACTION
+    // ✅ SAVE TRANSACTION WITHOUT AMOUNT
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
     
-    console.log('✅ Default transaction saved:', savedTransaction.transactionId);
+    console.log('✅ Default QR transaction saved:', savedTransaction.transactionId);
 
-    // ✅ GENERATE DEFAULT QR CODE
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${DEFAULT_AMOUNT}&tn=Default%20QR%20Code`;
+    // ✅ GENERATE DEFAULT QR CODE WITHOUT AMOUNT
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Code`;
+    // ❌ REMOVED: &am= parameter from UPI URL
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
     // ✅ UPDATE WITH QR CODE
@@ -202,17 +266,17 @@ export const generateDefaultQR = async (req, res) => {
     savedTransaction.paymentUrl = paymentUrl;
     await savedTransaction.save();
 
-    console.log('✅ Default QR generated successfully');
+    console.log('✅ Default QR (without amount) generated successfully');
 
     res.status(200).json({
       success: true,
       transactionId: savedTransaction.transactionId,
       qrCode: qrCodeUrl,
       paymentUrl: paymentUrl,
-      amount: savedTransaction.amount,
+      // ❌ REMOVED: amount from response
       status: savedTransaction.status,
       isDefault: true,
-      message: 'Default QR generated successfully'
+      message: 'Default QR (without amount) generated successfully'
     });
 
   } catch (error) {
@@ -220,71 +284,6 @@ export const generateDefaultQR = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to generate default QR',
-      error: error.message
-    });
-  }
-};
-
-// ✅ FIXED getTransactions function
-export const getTransactions = async (req, res) => {
-  try {
-    const merchantId = req.user.id;
-    console.log("🟡 Fetching transactions for merchant:", merchantId);
-
-    // ✅ SIMPLE QUERY - only by merchantId
-    const transactions = await Transaction.find({ 
-      merchantId: merchantId 
-    })
-    .sort({ createdAt: -1 })
-    .limit(50);
-
-    console.log(`✅ Found ${transactions.length} transactions`);
-
-    res.json(transactions);
-
-  } catch (error) {
-    console.error("❌ Error fetching transactions:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch transactions",
-      error: error.message
-    });
-  }
-};
-
-// ✅ SIMPLE DEBUG FUNCTION
-export const simpleDebug = async (req, res) => {
-  try {
-    console.log('🔧 Simple Debug Endpoint Hit');
-    
-    const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
-    
-    const collections = await mongoose.connection.db.listCollections().toArray();
-    const hasTransactions = collections.some(col => col.name === 'transactions');
-    
-    const sampleTransaction = await Transaction.findOne();
-    const transactionCount = await Transaction.countDocuments();
-    
-    res.json({
-      success: true,
-      timestamp: new Date().toISOString(),
-      database: {
-        status: dbStatus,
-        hasTransactionsCollection: hasTransactions,
-        transactionCount: transactionCount,
-        sampleTransaction: sampleTransaction
-      },
-      merchant: req.user ? {
-        id: req.user.id,
-        name: req.user.firstname + ' ' + (req.user.lastname || '')
-      } : 'No merchant info',
-      message: 'Debug information collected'
-    });
-    
-  } catch (error) {
-    console.error('❌ Simple Debug Error:', error);
-    res.status(500).json({
-      success: false,
       error: error.message
     });
   }
