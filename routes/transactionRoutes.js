@@ -6,6 +6,8 @@ import {
   checkTransactionStatus,
   getTransactionDetails,
   testConnection,
+    testEnpayDirectAPI, // ✅ ADD THIS
+
   testEnpayConnection,
   simpleDebug
 } from "../controllers/transactionController.js";
@@ -22,5 +24,6 @@ router.get("/details/:transactionId", authenticateMerchant, getTransactionDetail
 router.get("/test-connection", authenticateMerchant, testConnection);
 router.get("/test-enpay", authenticateMerchant, testEnpayConnection);
 router.get("/debug", authenticateMerchant, simpleDebug);
+router.get("/test-enpay-direct", authenticateMerchant, testEnpayDirectAPI); // ✅ ADD THIS
 
 export default router;
