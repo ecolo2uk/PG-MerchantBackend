@@ -358,14 +358,16 @@ export const generateDynamicQR = async (req, res) => {
 };
 
 // ✅ TEST ENPAY API DIRECTLY - FIXED
+// ✅ UPDATED TEST FUNCTION WITH CORRECT MERCHANT ID
 export const testEnpayDirectAPI = async (req, res) => {
   try {
-    console.log('🧪 Testing Enpay API directly with sample data...');
+    console.log('🧪 Testing Enpay API directly with correct merchant ID...');
     
+    // ✅ USE THE MERCHANT HASH ID FROM YOUR WORKING POSTMAN SCREENSHOT
     const testPayload = {
-      merchantHashId: 'MERCOSHESYYCDAYOLFTZR8MF',
-      txnAmount: '100.00', // ✅ Use string format with decimals
-      txnNote: 'Test Payment from API',
+      merchantHashId: 'MERCOSH51Y7CDAYJLFIZR8M', // From your working Postman
+      txnAmount: '100.00',
+      txnNote: 'Test Payment from Backend API',
       txnRefId: `TEST${Date.now()}`
     };
 
@@ -384,7 +386,7 @@ export const testEnpayDirectAPI = async (req, res) => {
       }
     );
 
-    console.log('✅ Enpay Direct Test Response:', response.data);
+    console.log('✅ Enpay Direct Test Success:', response.data);
 
     res.json({
       success: true,
@@ -404,7 +406,7 @@ export const testEnpayDirectAPI = async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.response?.data || error.message,
-      message: 'Enpay API test failed'
+      message: 'Enpay API test failed - Merchant ID issue'
     });
   }
 };
