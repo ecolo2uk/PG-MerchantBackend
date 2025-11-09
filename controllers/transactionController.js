@@ -6,24 +6,36 @@ const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() 
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
 // ✅ ENPAY API FUNCTION - UPDATED WITH BETTER ERROR HANDLING
+// ✅ UPDATED ENPAY API FUNCTION WITH BETTER DEBUGGING
 export const generateEnpayDynamicQR = async (transactionData) => {
   try {
     const { amount, txnNote, transactionId, merchantName } = transactionData;
     
     console.log('🟡 REAL: Generating QR with Enpay API');
     
+    // ✅ VALIDATE REQUIRED FIELDS
+    if (!transactionId) {
+      throw new Error('Transaction ID is required');
+    }
+
     const payload = {
       merchantHashId: 'MERCOSHESYYCDAYOLFTZR8MF',
       txnNote: txnNote || 'Payment for Order',
       txnRefId: transactionId
     };
 
-    // Add amount only if provided (for dynamic QR)
+    // Add amount only if provided and valid
     if (amount && amount > 0) {
       payload.txnAmount = amount.toString();
+      
+      // ✅ ENSURE AMOUNT IS IN CORRECT FORMAT
+      if (isNaN(amount) || amount <= 0) {
+        throw new Error('Invalid amount format');
+      }
     }
 
     console.log('🟡 Enpay API Payload:', JSON.stringify(payload, null, 2));
+    console.log('🟡 Enpay API URL: https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR');
 
     const response = await axios.post(
       'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
@@ -38,7 +50,8 @@ export const generateEnpayDynamicQR = async (transactionData) => {
       }
     );
 
-    console.log('✅ Enpay API Response:', response.data);
+    console.log('✅ Enpay API Response Status:', response.status);
+    console.log('✅ Enpay API Response Data:', response.data);
 
     if (response.data.code === 0) {
       return {
@@ -48,12 +61,13 @@ export const generateEnpayDynamicQR = async (transactionData) => {
         message: 'QR generated successfully via Enpay'
       };
     } else {
-      console.error('❌ Enpay API Error Response:', response.data);
+      console.error('❌ Enpay API Error Code:', response.data.code);
+      console.error('❌ Enpay API Error Message:', response.data.message);
       throw new Error(response.data.message || `Enpay API error: ${response.data.code}`);
     }
     
   } catch (error) {
-    console.error('❌ Enpay API Error Details:', {
+    console.error('❌ Enpay API Detailed Error:', {
       status: error.response?.status,
       statusText: error.response?.statusText,
       data: error.response?.data,
@@ -64,10 +78,26 @@ export const generateEnpayDynamicQR = async (transactionData) => {
       }
     });
     
+    // ✅ RETURN SPECIFIC ERROR MESSAGE
+    let errorMessage = 'Enpay API failed';
+    
+    if (error.response?.status === 400) {
+      errorMessage = `Enpay API Bad Request (400): ${error.response?.data?.message || 'Invalid request parameters'}`;
+    } else if (error.response?.status === 401) {
+      errorMessage = 'Enpay API Unauthorized (401): Check your API keys';
+    } else if (error.response?.status === 403) {
+      errorMessage = 'Enpay API Forbidden (403): Check your permissions';
+    } else if (error.response?.data?.message) {
+      errorMessage = `Enpay API Error: ${error.response.data.message}`;
+    } else {
+      errorMessage = `Enpay API Error: ${error.message}`;
+    }
+    
     return {
       success: false,
-      message: `Enpay API failed: ${error.response?.data?.message || error.message}`,
-      errorDetails: error.response?.data
+      message: errorMessage,
+      errorDetails: error.response?.data,
+      statusCode: error.response?.status
     };
   }
 };
@@ -194,6 +224,14 @@ export const generateDynamicQR = async (req, res) => {
 
     console.log('🟡 Generate Dynamic QR - Start:', { amount, merchantId, merchantName });
 
+    // ✅ VALIDATE AMOUNT PROPERLY
+    if (!amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Amount is required'
+      });
+    }
+
     const parsedAmount = parseFloat(amount);
 
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
@@ -241,7 +279,7 @@ export const generateDynamicQR = async (req, res) => {
     
     console.log('✅ Transaction saved successfully:', savedTransaction.transactionId);
 
-    // ✅ ENPAY API CALL - WITH BETTER ERROR HANDLING
+    // ✅ ENPAY API CALL - WITH PROPER ERROR HANDLING
     console.log('🟡 Calling Enpay API for QR generation...');
     const enpayResult = await generateEnpayDynamicQR({
       amount: parsedAmount,
@@ -252,7 +290,8 @@ export const generateDynamicQR = async (req, res) => {
 
     // Check if Enpay API was successful
     if (!enpayResult.success) {
-      console.log('❌ Enpay API failed, using fallback QR generation...');
+      console.log('❌ Enpay API failed:', enpayResult.message);
+      console.log('🔄 Using fallback QR generation...');
       
       // ✅ FALLBACK: Generate QR without Enpay
       const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
@@ -263,8 +302,8 @@ export const generateDynamicQR = async (req, res) => {
       savedTransaction.paymentUrl = paymentUrl;
       savedTransaction.enpayResponse = { 
         fallback: true,
-        message: 'Used fallback QR generation',
-        error: enpayResult.message
+        message: enpayResult.message,
+        errorDetails: enpayResult.errorDetails
       };
       await savedTransaction.save();
 
@@ -318,20 +357,19 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-
-// ✅ TEST ENPAY API DIRECTLY
+// ✅ TEST ENPAY API DIRECTLY - FIXED
 export const testEnpayDirectAPI = async (req, res) => {
   try {
     console.log('🧪 Testing Enpay API directly with sample data...');
     
     const testPayload = {
       merchantHashId: 'MERCOSHESYYCDAYOLFTZR8MF',
-      txnAmount: '100',
-      txnNote: 'Test Payment',
+      txnAmount: '100.00', // ✅ Use string format with decimals
+      txnNote: 'Test Payment from API',
       txnRefId: `TEST${Date.now()}`
     };
 
-    console.log('🟡 Test Payload:', testPayload);
+    console.log('🟡 Test Payload:', JSON.stringify(testPayload, null, 2));
 
     const response = await axios.post(
       'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
@@ -352,7 +390,7 @@ export const testEnpayDirectAPI = async (req, res) => {
       success: true,
       testPayload,
       enpayResponse: response.data,
-      message: 'Enpay API test completed'
+      message: 'Enpay API test completed successfully'
     });
 
   } catch (error) {
