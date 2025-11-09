@@ -22,7 +22,9 @@ router.get('/analytics', protect, getDashboardAnalytics);
 router.get('/recent-orders', protect, getRecentOrders);
 router.get('/merchant-transaction-summary', protect, getMerchantTransactionSummary); 
 router.get('/merchants', protect, getAllMerchants); 
-router.get('/transactions-by-merchant', protect, getTransactionsByMerchantStatus);
+// Merchant dashboard routes
+router.get('/merchant-analytics', getMerchantAnalytics);
+router.get('/merchant-transactions', getTransactionsByMerchantStatus);
 router.get('/debug-structure', debugDataStructure);
 
 // Add these new routes for merchant dashboard

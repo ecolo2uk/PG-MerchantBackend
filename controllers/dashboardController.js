@@ -547,6 +547,7 @@ export const debugDataStructure = async (req, res) => {
   }
 };
 
+// Merchant-specific analytics
 export const getMerchantAnalytics = async (req, res) => {
   try {
     let { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
@@ -558,15 +559,13 @@ export const getMerchantAnalytics = async (req, res) => {
 
     if (!merchantId) {
       return res.status(400).json({ 
-        message: 'Merchant ID is required',
-        receivedQuery: req.query
+        message: 'Merchant ID is required'
       });
     }
 
     if (!mongoose.Types.ObjectId.isValid(merchantId)) {
       return res.status(400).json({ 
-        message: 'Invalid merchant ID format',
-        receivedId: merchantId
+        message: 'Invalid merchant ID format'
       });
     }
 
@@ -582,9 +581,6 @@ export const getMerchantAnalytics = async (req, res) => {
     }
 
     console.log('🔍 Final Match Query for merchant analytics:', JSON.stringify(matchQuery, null, 2));
-
-    const totalTransactions = await Transaction.countDocuments(matchQuery);
-    console.log(`📊 Found ${totalTransactions} transactions for merchant ${merchantId}`);
 
     const analytics = await Transaction.aggregate([
       { $match: matchQuery },
