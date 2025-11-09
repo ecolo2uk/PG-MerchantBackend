@@ -287,6 +287,8 @@ export const testEnpayConnection = async (req, res) => {
     };
 
     const axios = require('axios');
+    
+    console.log('🟡 Sending request to Enpay API...');
     const response = await axios.post(
       'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
       testPayload,
@@ -300,18 +302,19 @@ export const testEnpayConnection = async (req, res) => {
       }
     );
 
-    console.log('🧪 Enpay Direct Test Response:', response.data);
+    console.log('✅ Enpay Direct Test Response:', response.data);
 
     res.json({
       success: true,
       enpayStatus: response.data.code === 0 ? 'Working' : 'Error',
       enpayResponse: response.data,
-      message: 'Enpay API test completed'
+      message: 'Enpay API test completed successfully'
     });
 
   } catch (error) {
-    console.error('🧪 Enpay Direct Test Failed:', {
+    console.error('❌ Enpay Direct Test Failed:', {
       status: error.response?.status,
+      statusText: error.response?.statusText,
       data: error.response?.data,
       message: error.message
     });
@@ -838,4 +841,42 @@ export const enpayDebugScript = async (req, res) => {
   };
 
   res.json(debugInfo);
+};
+
+export const simpleDebug = async (req, res) => {
+  try {
+    console.log('🔧 Simple Debug Endpoint Hit');
+    
+    // Check database connection
+    const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
+    
+    // Check if transactions collection exists
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const hasTransactions = collections.some(col => col.name === 'transactions');
+    
+    // Get sample transaction
+    const sampleTransaction = await Transaction.findOne();
+    
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      database: {
+        status: dbStatus,
+        hasTransactionsCollection: hasTransactions,
+        sampleTransaction: sampleTransaction
+      },
+      merchant: req.user ? {
+        id: req.user.id,
+        name: req.user.firstname + ' ' + (req.user.lastname || '')
+      } : 'No merchant info',
+      message: 'Debug information collected'
+    });
+    
+  } catch (error) {
+    console.error('❌ Simple Debug Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 };
