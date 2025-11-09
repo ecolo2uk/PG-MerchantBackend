@@ -5,7 +5,7 @@ import axios from 'axios';
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// ✅ ENPAY API FUNCTION - ONLY ONCE DECLARED
+// ✅ ENPAY API FUNCTION - ONLY THIS ONE SHOULD EXIST
 export const generateEnpayDynamicQR = async (transactionData) => {
   try {
     const { amount, txnNote, transactionId, merchantName } = transactionData;
@@ -229,7 +229,8 @@ export const generateDynamicQR = async (req, res) => {
     
     console.log('✅ Transaction saved successfully:', savedTransaction.transactionId);
 
-    // ✅ ENPAY API CALL
+    // ✅ ENPAY API CALL - IMPORTANT!
+    console.log('🟡 Calling Enpay API for QR generation...');
     const enpayResult = await generateEnpayDynamicQR({
       amount: parsedAmount,
       txnNote,
@@ -237,12 +238,16 @@ export const generateDynamicQR = async (req, res) => {
       merchantName
     });
 
+    // Check if Enpay API was successful
     if (!enpayResult.success) {
+      console.log('❌ Enpay API failed, throwing error...');
       throw new Error(`Enpay QR generation failed: ${enpayResult.message}`);
     }
 
-    // ✅ Use Enpay QR data
-    const qrCodeUrl = enpayResult.enpayResponse.details;
+    console.log('✅ Enpay API success, using Enpay QR data');
+
+    // ✅ Use Enpay QR data (NOT fallback)
+    const qrCodeUrl = enpayResult.enpayResponse.details; // Enpay का QR
     const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
 
     // ✅ UPDATE TRANSACTION WITH ENPAY DATA
@@ -266,6 +271,11 @@ export const generateDynamicQR = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Generate QR Error:', error);
+    
+    // If Enpay fails, you can choose to use fallback here
+    console.log('🔄 Trying fallback QR generation...');
+    
+    // Fallback logic here if needed
     res.status(500).json({
       success: false,
       message: 'Failed to generate QR via Enpay',
@@ -291,7 +301,6 @@ export const generateDefaultQR = async (req, res) => {
     const transactionId = `DFT${Date.now()}`;
     const vendorRefId = `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-    // ✅ NO AMOUNT FIELD - Only basic transaction data
     const transactionData = {
       transactionId,
       merchantId: merchantId,
@@ -311,7 +320,6 @@ export const generateDefaultQR = async (req, res) => {
 
     console.log('🔵 Creating default QR transaction (no amount):', transactionData);
 
-    // ✅ SAVE TRANSACTION WITHOUT AMOUNT
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
     
@@ -334,7 +342,6 @@ export const generateDefaultQR = async (req, res) => {
       const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Code`;
       const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
 
-      // Update with fallback QR code
       savedTransaction.qrCode = qrCodeUrl;
       savedTransaction.paymentUrl = paymentUrl;
       savedTransaction.enpayResponse = { 
@@ -363,7 +370,6 @@ export const generateDefaultQR = async (req, res) => {
     const qrCodeUrl = enpayResult.qrData || enpayResult.enpayResponse?.details;
     const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Code`;
 
-    // Update with Enpay QR code
     savedTransaction.qrCode = qrCodeUrl;
     savedTransaction.paymentUrl = paymentUrl;
     savedTransaction.enpayResponse = enpayResult.enpayResponse;
@@ -392,6 +398,8 @@ export const generateDefaultQR = async (req, res) => {
     });
   }
 };
+
+// ... other functions remain the same
 
 // ... other functions remain the same
 export const checkTransactionStatus = async (req, res) => {
