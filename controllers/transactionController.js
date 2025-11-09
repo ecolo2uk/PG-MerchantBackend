@@ -1,10 +1,64 @@
 import Transaction from '../models/Transaction.js';
 import mongoose from 'mongoose';
-import { generateEnpayDynamicQR, generateEnpayDefaultQR } from '../services/enpayService.js';
-import axios from 'axios'; // ✅ IMPORT AXIOS PROPERLY
+import axios from 'axios';
 
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+// ✅ ENPAY API FUNCTION - ONLY ONCE DECLARED
+export const generateEnpayDynamicQR = async (transactionData) => {
+  try {
+    const { amount, txnNote, transactionId, merchantName } = transactionData;
+    
+    console.log('🟡 REAL: Generating QR with Enpay API');
+    
+    const payload = {
+      merchantHashId: 'MERCOSHESYYCDAYOLFTZR8MF',
+      txnNote: txnNote,
+      txnRefId: transactionId
+    };
+
+    // Add amount only if provided (for dynamic QR)
+    if (amount && amount > 0) {
+      payload.txnAmount = amount.toString();
+    }
+
+    console.log('🟡 Enpay API Payload:', payload);
+
+    const response = await axios.post(
+      'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
+      payload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Merchant-Key': '0851439b-03df-4983-88d6-32399b1e4514',
+          'X-Merchant-Secret': 'bae97f533a594af9bf3dded47f09c34e15e053d1'
+        },
+        timeout: 30000
+      }
+    );
+
+    console.log('✅ Enpay API Response:', response.data);
+
+    if (response.data.code === 0) {
+      return {
+        success: true,
+        enpayResponse: response.data,
+        qrData: response.data.details,
+        message: 'QR generated successfully via Enpay'
+      };
+    } else {
+      throw new Error(response.data.message || 'Enpay API error');
+    }
+    
+  } catch (error) {
+    console.error('❌ Enpay API Error:', error);
+    return {
+      success: false,
+      message: 'Enpay API failed: ' + error.message
+    };
+  }
+};
 
 // ✅ FIXED testEnpayConnection function
 export const testEnpayConnection = async (req, res) => {
@@ -57,7 +111,6 @@ export const testEnpayConnection = async (req, res) => {
     });
   }
 };
-
 
 export const getTransactions = async (req, res) => {
   try {
@@ -121,8 +174,6 @@ export const simpleDebug = async (req, res) => {
   }
 };  
 
-
-// ✅ SIMPLIFIED generateDynamicQR function
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = 'Payment for Order' } = req.body;
@@ -140,7 +191,6 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    // ✅ ENFORCE MINIMUM AMOUNT
     const MINIMUM_AMOUNT = 100;
     if (parsedAmount < MINIMUM_AMOUNT) {
       return res.status(400).json({
@@ -152,7 +202,7 @@ export const generateDynamicQR = async (req, res) => {
     const transactionId = generateTransactionId();
     const vendorRefId = generateVendorRefId();
 
-    // ✅ SIMPLE TRANSACTION DATA
+    // ✅ TRANSACTION DATA
     const transactionData = {
       transactionId,
       merchantId: merchantId,
@@ -179,16 +229,29 @@ export const generateDynamicQR = async (req, res) => {
     
     console.log('✅ Transaction saved successfully:', savedTransaction.transactionId);
 
-    // ✅ GENERATE QR CODE URL
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
+    // ✅ ENPAY API CALL
+    const enpayResult = await generateEnpayDynamicQR({
+      amount: parsedAmount,
+      txnNote,
+      transactionId,
+      merchantName
+    });
 
-    // ✅ UPDATE TRANSACTION WITH QR CODE
+    if (!enpayResult.success) {
+      throw new Error(`Enpay QR generation failed: ${enpayResult.message}`);
+    }
+
+    // ✅ Use Enpay QR data
+    const qrCodeUrl = enpayResult.enpayResponse.details;
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&am=${parsedAmount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
+
+    // ✅ UPDATE TRANSACTION WITH ENPAY DATA
     savedTransaction.qrCode = qrCodeUrl;
     savedTransaction.paymentUrl = paymentUrl;
+    savedTransaction.enpayResponse = enpayResult.enpayResponse;
     await savedTransaction.save();
 
-    console.log('✅ QR Code generated successfully');
+    console.log('✅ QR Code generated via Enpay successfully');
 
     res.status(200).json({
       success: true,
@@ -197,20 +260,20 @@ export const generateDynamicQR = async (req, res) => {
       paymentUrl: paymentUrl,
       amount: savedTransaction.amount,
       status: savedTransaction.status,
-      message: 'QR generated successfully'
+      enpayResponse: enpayResult.enpayResponse,
+      message: 'QR generated successfully via Enpay'
     });
 
   } catch (error) {
     console.error('❌ Generate QR Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to generate QR',
+      message: 'Failed to generate QR via Enpay',
       error: error.message
     });
   }
-};
+}; 
 
-// ✅ FIXED generateDefaultQR - WITHOUT AMOUNT
 export const generateDefaultQR = async (req, res) => {
   try {
     console.log('🔵 Generate Default QR - Start');
@@ -233,8 +296,6 @@ export const generateDefaultQR = async (req, res) => {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      // ❌ REMOVED: amount field
-      // ❌ REMOVED: Commission Amount field  
       createdAt: new Date().toISOString(),
       mid: req.user.mid || 'DEFAULT_MID',
       "Settlement Status": "UNSETTLED",
@@ -245,7 +306,7 @@ export const generateDefaultQR = async (req, res) => {
       merchantVpa: 'enpay1.skypal@fino',
       merchantOrderId: `ORDER${Date.now()}`,
       txnRefId: transactionId,
-      isDefaultQR: true // ✅ Flag to identify default QR
+      isDefaultQR: true
     };
 
     console.log('🔵 Creating default QR transaction (no amount):', transactionData);
@@ -256,27 +317,70 @@ export const generateDefaultQR = async (req, res) => {
     
     console.log('✅ Default QR transaction saved:', savedTransaction.transactionId);
 
-    // ✅ GENERATE DEFAULT QR CODE WITHOUT AMOUNT
-    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Code`;
-    // ❌ REMOVED: &am= parameter from UPI URL
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
+    // ✅ ENPAY API CALL FOR DEFAULT QR
+    console.log('🟡 Calling Enpay API for default QR...');
+    
+    const enpayResult = await generateEnpayDynamicQR({
+      amount: null,
+      txnNote: 'Default QR Code',
+      transactionId,
+      merchantName
+    });
 
-    // ✅ UPDATE WITH QR CODE
+    if (!enpayResult.success) {
+      console.log('🟡 Enpay API failed, using fallback QR generation');
+      
+      // Fallback: Generate QR without Enpay
+      const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Code`;
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentUrl)}`;
+
+      // Update with fallback QR code
+      savedTransaction.qrCode = qrCodeUrl;
+      savedTransaction.paymentUrl = paymentUrl;
+      savedTransaction.enpayResponse = { 
+        fallback: true,
+        message: 'Used fallback QR generation' 
+      };
+      await savedTransaction.save();
+
+      console.log('✅ Default QR (fallback) generated successfully');
+
+      return res.status(200).json({
+        success: true,
+        transactionId: savedTransaction.transactionId,
+        qrCode: qrCodeUrl,
+        paymentUrl: paymentUrl,
+        status: savedTransaction.status,
+        isDefault: true,
+        isFallback: true,
+        message: 'Default QR generated with fallback method'
+      });
+    }
+
+    // ✅ SUCCESS: Use Enpay QR data
+    console.log('✅ Enpay API success, using Enpay QR data');
+    
+    const qrCodeUrl = enpayResult.qrData || enpayResult.enpayResponse?.details;
+    const paymentUrl = `upi://pay?pa=enpay1.skypal@fino&pn=${encodeURIComponent(merchantName)}&tn=Default%20QR%20Code`;
+
+    // Update with Enpay QR code
     savedTransaction.qrCode = qrCodeUrl;
     savedTransaction.paymentUrl = paymentUrl;
+    savedTransaction.enpayResponse = enpayResult.enpayResponse;
     await savedTransaction.save();
 
-    console.log('✅ Default QR (without amount) generated successfully');
+    console.log('✅ Default QR (via Enpay) generated successfully');
 
     res.status(200).json({
       success: true,
       transactionId: savedTransaction.transactionId,
       qrCode: qrCodeUrl,
       paymentUrl: paymentUrl,
-      // ❌ REMOVED: amount from response
       status: savedTransaction.status,
       isDefault: true,
-      message: 'Default QR (without amount) generated successfully'
+      isFallback: false,
+      enpayResponse: enpayResult.enpayResponse,
+      message: 'Default QR generated successfully via Enpay'
     });
 
   } catch (error) {
@@ -288,37 +392,8 @@ export const generateDefaultQR = async (req, res) => {
     });
   }
 };
-// ... rest of your controller functions remain the same
-// export const getTransactions = async (req, res) => {
-//   try {
-//     const merchantId = req.user.id;
-//     console.log("🟡 Fetching transactions for merchant:", merchantId);
 
-//     const transactions = await Transaction.find({ 
-//       $or: [
-//         { merchantId: merchantId },
-//         { merchantId: new mongoose.Types.ObjectId(merchantId) }
-//       ]
-//     })
-//     .sort({ createdAt: -1 })
-//     .select('-__v');
-
-//     console.log(`✅ Found ${transactions.length} transactions`);
-
-//     res.json(transactions);
-
-//   } catch (error) {
-//     console.error("❌ Error fetching transactions:", error);
-//     res.status(500).json({
-//       code: 500,
-//       message: "Failed to fetch transactions",
-//       error: error.message
-//     });
-//   }
-// };
-
-// ... other functions (checkTransactionStatus, testConnection, handlePaymentWebhook, etc.)
-// Other functions remain the same...
+// ... other functions remain the same
 export const checkTransactionStatus = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -360,12 +435,10 @@ export const checkTransactionStatus = async (req, res) => {
   }
 };
 
-// Test Connection
 export const testConnection = async (req, res) => {
   try {
     const merchantId = req.user.id;
     
-    // Test database connection
     const count = await Transaction.countDocuments({ merchantId });
     
     res.json({
@@ -385,7 +458,6 @@ export const testConnection = async (req, res) => {
   }
 };
 
-// Handle Payment Webhook
 export const handlePaymentWebhook = async (req, res) => {
   try {
     const {
@@ -414,7 +486,6 @@ export const handlePaymentWebhook = async (req, res) => {
     if (transaction) {
       console.log(`✅ Found transaction: ${transaction.transactionId}`);
       
-      // Update fields
       if (status) transaction.status = status;
       if (amount) transaction.amount = parseFloat(amount);
       if (customerName) transaction["Customer Name"] = customerName;
@@ -447,13 +518,12 @@ export const handlePaymentWebhook = async (req, res) => {
   }
 };
 
-// Get Transaction Details
 export const getTransactionDetails = async (req, res) => {
   try {
     const { transactionId } = req.params;
     const merchantId = req.user.id;
 
-    console.log("🟡 Get transaction details from MAIN collection:", { transactionId, merchantId });
+    console.log("🟡 Get transaction details:", { transactionId, merchantId });
 
     const transaction = await Transaction.findOne({ 
       transactionId, 
@@ -463,14 +533,13 @@ export const getTransactionDetails = async (req, res) => {
     if (!transaction) {
       return res.status(404).json({ 
         code: 404,
-        message: "Transaction not found in MAIN collection" 
+        message: "Transaction not found" 
       });
     }
 
     res.json({
       code: 200,
-      transaction,
-      collection: "transactions"
+      transaction
     });
   } catch (error) {
     console.error("❌ Get Details Error:", error);
@@ -481,326 +550,8 @@ export const getTransactionDetails = async (req, res) => {
   }
 };
 
+// ... remove duplicate functions and imports that are causing conflicts
 
-export const downloadReceipt = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const merchantId = req.user.id;
-
-    const transaction = await Transaction.findOne({ 
-      transactionId, 
-      merchantId: new mongoose.Types.ObjectId(merchantId)
-    });
-
-    if (!transaction) {
-      return res.status(404).json({ 
-        code: 404,
-        message: "Transaction not found in MAIN collection" 
-      });
-    }
-
-    if (transaction.status !== "SUCCESS") {
-      return res.status(400).json({ 
-        code: 400,
-        message: "Receipt only available for successful transactions" 
-      });
-    }
-
-    const receiptData = {
-      transactionId: transaction.transactionId,
-      merchantOrderId: transaction.merchantOrderId,
-      amount: transaction.amount,
-      date: transaction.createdAt,
-      merchantName: transaction.merchantName,
-      status: transaction.status,
-      upiId: transaction.upiId,
-      customerName: transaction["Customer Name"] || 'N/A',
-      customerVpa: transaction["Customer VPA"] || 'N/A',
-      commissionAmount: transaction["Commission Amount"],
-      settlementStatus: transaction["Settlement Status"]
-    };
-
-    res.json({
-      code: 200,
-      message: "Receipt generated successfully",
-      receipt: receiptData
-    });
-
-  } catch (error) {
-    console.error("❌ Download Receipt Error:", error);
-    res.status(500).json({ 
-      code: 500,
-      message: "Failed to download receipt",
-      error: error.message 
-    });
-  }
-};
-
-export const initiateRefund = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const { refundAmount, reason } = req.body;
-    const merchantId = req.user.id;
-
-    console.log("🟡 Refund request in MAIN collection:", { transactionId, merchantId, refundAmount, reason });
-
-    const transaction = await Transaction.findOne({ 
-      transactionId, 
-      merchantId: new mongoose.Types.ObjectId(merchantId)
-    });
-
-    if (!transaction) {
-      return res.status(404).json({ 
-        code: 404,
-        message: "Transaction not found in MAIN collection" 
-      });
-    }
-
-    if (transaction.status !== "SUCCESS") {
-      return res.status(400).json({ 
-        code: 400,
-        message: "Refund only available for successful transactions" 
-      });
-    }
-
-    if (refundAmount > transaction.amount) {
-      return res.status(400).json({ 
-        code: 400,
-        message: "Refund amount cannot exceed original transaction amount" 
-      });
-    }
-
-    console.log(`🟡 Refund initiated for: ${transactionId}, Amount: ${refundAmount}, Reason: ${reason}`);
-
-    // Update transaction status to Refunded in MAIN collection
-    transaction.status = "REFUNDED";
-    await transaction.save();
-
-    res.json({
-      code: 200,
-      message: "Refund initiated successfully",
-      refundId: `REF${Date.now()}`,
-      transactionId: transactionId,
-      refundAmount: refundAmount,
-      originalAmount: transaction.amount,
-      status: "REFUNDED",
-      collection: "main"
-    });
-
-  } catch (error) {
-    console.error("❌ Refund Error:", error);
-    res.status(500).json({ 
-      code: 500,
-      message: "Failed to initiate refund",
-      error: error.message 
-    });
-  }
-};
-
-// Simulate Payment Webhook
-export const simulatePaymentWebhook = async (req, res) => {
-  try {
-    const { transactionId, merchantOrderId, txnRefId, amount = 100, status = "SUCCESS" } = req.body;
-
-    const webhookData = {
-      transactionId: transactionId,
-      merchantOrderId: merchantOrderId,
-      txnRefId: txnRefId,
-      status: status,
-      upiId: "customer@upi",
-      amount: amount,
-      customerName: "Test Customer",
-      customerVpa: "customer@okicici",
-      customerContact: "9876543210",
-      settlementStatus: "Unsettled",
-      enpayTxnId: `ENPAY${Date.now()}`,
-      mid: `MID${Date.now()}`,
-      "Vendor Ref ID": `VENDORREF${Date.now()}`,
-      "Commission Amount": 0,
-      merchantName: "Test Merchant"
-    };
-
-    // Call webhook internally
-    const fakeReq = { body: webhookData };
-    const fakeRes = {
-      json: (data) => {
-        console.log("✅ Simulated webhook response:", data);
-        res.json({
-          code: 200,
-          message: "Webhook simulation completed",
-          simulation: data
-        });
-      },
-      status: (code) => ({
-        json: (data) => {
-          console.log("❌ Simulated webhook error:", data);
-          res.status(code).json(data);
-        }
-      })
-    };
-
-    await handlePaymentWebhook(fakeReq, fakeRes);
-
-  } catch (error) {
-    console.error("❌ Simulation error:", error);
-    res.status(500).json({
-      code: 500,
-      message: "Simulation failed",
-      error: error.message
-    });
-  }
-};
-
-// Add to your transactionController.js
-export const debugSchema = async (req, res) => {
-  try {
-    const sampleDoc = await Transaction.findOne();
-    // FIX 1: Use mongoose.connection.db for db commands
-    const validationResult = await mongoose.connection.db.command({
-      validate: "transactions",
-      full: true
-    });
-
-    res.json({
-      sampleDocument: sampleDoc,
-      validation: validationResult,
-      collectionStats: await Transaction.db.collection('transactions').stats()
-    });
-  } catch (error) {
-    console.error("❌ Debug Schema Error:", error); // Added error logging
-    res.status(500).json({ error: error.message });
-  }
-};
-
-export const fixSchema = async (req, res) => {
-  try {
-    // FIX 1: Use mongoose.connection.db for db commands
-    await mongoose.connection.db.command({
-      collMod: "transactions",
-      validator: {}
-    });
-
-    res.json({ message: "Schema validation disabled", success: true });
-  } catch (error) {
-    console.error("❌ Fix Schema Error:", error); // Added error logging
-    res.status(500).json({ error: error.message });
-  }
-};
-
-
-// controllers/transactionController.js मध्ये add करा
-export const testEnpayDirect = async (req, res) => {
-  try {
-    const request = require('request');
-    
-    const options = {
-      'method': 'POST',
-      'url': 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
-      'headers': {
-        'Content-Type': 'application/json',
-        'X-Merchant-Key': '0851439b-03df-4983-88d6-32399b1e4514',
-        'X-Merchant-Secret': 'bae97f533a594af9bf3dded47f09c34e15e053d1'
-      },
-      body: JSON.stringify({
-        "merchantHashId": "MERCDSH51Y7CD4YJLFIZR8NF",
-        "txnAmount": "100",
-        "txnNote": "Test Payment",
-        "txnRefId": "TEST123456"
-      })
-    };
-
-    request(options, function (error, response) {
-      if (error) {
-        return res.status(500).json({ error: error.message });
-      }
-      res.json(JSON.parse(response.body));
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-
-// Test different API structures
-export const testEnpayEndpoints = async (req, res) => {
-  try {
-    const endpointsToTest = [
-      '/dynamicQR',
-      'dynamicQR', 
-      '/generate-dynamic-qr',
-      '/qr/generate',
-      '/generateQR',
-      '/v1/dynamicQR',
-      '/merchant-gateway/dynamicQR'
-    ];
-
-    const testResults = [];
-
-    for (const endpoint of endpointsToTest) {
-      try {
-        const payload = {
-          merchantHashId: 'MERCDSH51Y7CD4YJLFIZR8NF',
-          txnAmount: '100',
-          txnNote: 'Test Payment',
-          txnRefId: `TEST${Date.now()}`
-        };
-
-        console.log(`🧪 Testing endpoint: ${endpoint}`);
-        
-        const response = await enpayApi.post(endpoint, payload);
-        testResults.push({
-          endpoint,
-          status: 'SUCCESS',
-          data: response.data
-        });
-        break; // Stop at first success
-        
-      } catch (error) {
-        testResults.push({
-          endpoint, 
-          status: 'FAILED',
-          error: error.response?.data || error.message
-        });
-      }
-    }
-
-    res.json({
-      success: true,
-      testResults,
-      workingEndpoint: testResults.find(r => r.status === 'SUCCESS')?.endpoint
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-};
-// Create a test script to share with Enpay support
-export const enpayDebugScript = async (req, res) => {
-  const debugInfo = {
-    timestamp: new Date().toISOString(),
-    baseURL: ENPAY_CONFIG.baseURL,
-    endpointsTested: [
-      'POST /dynamicQR',
-      'POST /generate-dynamic-qr', 
-      'POST /qr/generate'
-    ],
-    headers: {
-      'X-Merchant-Key': '***' + ENPAY_CONFIG.merchantKey.slice(-4),
-      'X-Merchant-Secret': '***' + ENPAY_CONFIG.merchantSecret.slice(-4),
-      'Content-Type': 'application/json'
-    },
-    samplePayload: {
-      merchantHashId: ENPAY_CONFIG.merchantHashId,
-      txnAmount: "100",
-      txnNote: "Test Payment",
-      txnRefId: "TEST123456"
-    },
-    error: '405 Method Not Allowed - Please verify the correct API endpoint'
-  };
-
-  res.json(debugInfo);
-};
-
+// Remove these duplicate imports and functions:
+// import { generateEnpayDynamicQR, generateEnpayDefaultQR } from '../services/enpayService.js';
+// Remove the duplicate generateEnpayDynamicQR function that was at line 225
