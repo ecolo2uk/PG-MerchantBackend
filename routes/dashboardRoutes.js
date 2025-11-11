@@ -1,38 +1,17 @@
 import express from 'express';
 import { 
-  getDashboardAnalytics, 
-  getMerchantTransactionSummary,
-  getRecentOrders,
-  getAllMerchants,
-  getTransactionsByMerchantStatus,
-  debugDataStructure,
-  checkMerchantData,
-
-  getSalesReport ,
-    getMerchantAnalytics,
+  getMerchantAnalytics,
   getMerchantTransactions,
-  getMerchantSalesReport // Add this import
+  getMerchantSalesReport,
+  getCurrentMerchant
 } from '../controllers/dashboardController.js';
 
 const router = express.Router();
 
-const protect = (req, res, next) => {
-  next(); 
-};
-
-// Apply protect middleware to routes that require authentication
-router.get('/analytics', protect, getDashboardAnalytics);
-router.get('/recent-orders', protect, getRecentOrders);
-router.get('/merchant-transaction-summary', protect, getMerchantTransactionSummary); 
-router.get('/merchants', protect, getAllMerchants); 
-router.get('/merchant-analytics', getMerchantAnalytics);
-router.get('/merchant-transactions', getMerchantTransactions);
-router.get('/merchant-sales-report', getMerchantSalesReport);
-router.get('/api/dashboard/transactions-by-merchant', getTransactionsByMerchantStatus);
-router.get('/api/dashboard/sales-report', getSalesReport);
-router.get('/debug-structure', debugDataStructure);
-
-
-router.get('/check-merchant-data', protect, checkMerchantData);
+// Merchant-specific routes
+router.get('/merchant/analytics', getMerchantAnalytics);
+router.get('/merchant/transactions', getMerchantTransactions);
+router.get('/merchant/sales-report', getMerchantSalesReport);
+router.get('/merchant/info', getCurrentMerchant);
 
 export default router;
