@@ -467,3 +467,50 @@ export const getCurrentMerchant = async (req, res) => {
     });
   }
 };
+
+// Debug endpoint to check merchant data
+export const debugMerchantData = async (req, res) => {
+  try {
+    const { merchantId } = req.query;
+
+    console.log('🔍 Debugging merchant data for:', merchantId);
+
+    if (!merchantId) {
+      return res.status(400).json({ message: 'Merchant ID is required' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(merchantId)) {
+      return res.status(400).json({ message: 'Invalid merchant ID format' });
+    }
+
+    const objectId = new mongoose.Types.ObjectId(merchantId);
+
+    // Check if merchant exists in User collection
+    const merchantUser = await User.findById(objectId);
+    console.log('🔍 Merchant User:', merchantUser);
+
+    // Check transactions for this merchant
+    const transactions = await Transaction.find({ merchantId: objectId });
+    console.log('🔍 Transactions count:', transactions.length);
+    
+    // Check first few transactions
+    const sampleTransactions = await Transaction.find({ merchantId: objectId }).limit(5);
+    console.log('🔍 Sample Transactions:', sampleTransactions);
+
+    // Check all transactions regardless of merchant
+    const allTransactionsCount = await Transaction.countDocuments();
+    console.log('🔍 All transactions in database:', allTransactionsCount);
+
+    res.status(200).json({
+      merchant: merchantUser,
+      transactionsCount: transactions.length,
+      sampleTransactions: sampleTransactions,
+      allTransactionsCount: allTransactionsCount,
+      merchantIdUsed: objectId
+    });
+
+  } catch (error) {
+    console.error('❌ Debug error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
