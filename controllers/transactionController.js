@@ -818,47 +818,30 @@ import axios from 'axios';
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// ✅ GET MERCHANT CONNECTOR ACCOUNT
-// ✅ GET MERCHANT CONNECTOR ACCOUNT - IMPROVED
+// ✅ IMPROVED GET MERCHANT CONNECTOR ACCOUNT
+// transactionController.js में temporary fix
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
-    console.log('🟡 Fetching merchant connector account for merchantId:', merchantId);
+    console.log('🟡 DIRECT DATABASE QUERY for merchantId:', merchantId);
     
-    // ✅ CORRECT COLLECTION NAME CHECK
-    const collections = await mongoose.connection.db.listCollections().toArray();
-    console.log('📋 Available collections:', collections.map(c => c.name));
-    
+    // ✅ DIRECT DATABASE ACCESS
     const connectorAccount = await mongoose.connection.db.collection('merchantconnectoraccounts')
       .findOne({ 
         merchantId: new mongoose.Types.ObjectId(merchantId),
         status: "Active"
       });
 
-    console.log('🔍 Raw query result:', connectorAccount);
-
-    if (!connectorAccount) {
-      console.log('❌ No active connector account found for merchant:', merchantId);
-      
-      // ✅ CHECK IF MERCHANT EXISTS
-      const merchant = await mongoose.connection.db.collection('merchants')
-        .findOne({ _id: new mongoose.Types.ObjectId(merchantId) });
-      console.log('👤 Merchant exists:', !!merchant);
-      
-      return null;
+    if (connectorAccount) {
+      console.log('✅ DIRECT QUERY SUCCESS - Connector found with integrationKeys:', 
+        !!connectorAccount.integrationKeys);
+      return connectorAccount;
     }
-
-    console.log('✅ Merchant Connector Account Found:', {
-      _id: connectorAccount._id,
-      terminalId: connectorAccount.terminalId,
-      connectorId: connectorAccount.connectorId,
-      hasIntegrationKeys: !!connectorAccount.integrationKeys,
-      integrationKeys: Object.keys(connectorAccount.integrationKeys || {})
-    });
-
-    return connectorAccount;
+    
+    console.log('❌ DIRECT QUERY - No connector found');
+    return null;
     
   } catch (error) {
-    console.error('❌ Error fetching merchant connector account:', error);
+    console.error('❌ DIRECT QUERY ERROR:', error);
     return null;
   }
 };
@@ -922,17 +905,19 @@ export const generateGenericDynamicQR = async (transactionData, merchantConnecto
 // ✅ ENPAY QR GENERATION (DYNAMIC CREDENTIALS)
 const generateEnpayQR = async (transactionData, integrationKeys) => {
   try {
-    console.log('🔍 CHECKING ENPAY CREDENTIALS:');
-    console.log('Merchant Hash ID:', integrationKeys.merchantHashId);
-    console.log('X-Merchant-Key:', integrationKeys['X-Merchant-Key']);
-    console.log('X-Merchant-Secret:', integrationKeys['X-Merchant-Secret'] ? '***PRESENT***' : 'MISSING');
-    console.log('Base URL:', integrationKeys.baseUrl);
-
-    // ✅ CREDENTIALS VALIDATION
-    if (!integrationKeys['X-Merchant-Key'] || !integrationKeys['X-Merchant-Secret']) {
-      console.error('❌ CREDENTIALS MISSING IN DATABASE');
-      throw new Error('Enpay credentials missing in integration keys');
+    console.log('🔍 CHECKING ENPAY CREDENTIALS FROM DATABASE:');
+    console.log('Integration Keys Object:', integrationKeys);
+    
+    // ✅ VALIDATE ALL REQUIRED KEYS
+    const requiredKeys = ['X-Merchant-Key', 'X-Merchant-Secret', 'merchantHashId'];
+    const missingKeys = requiredKeys.filter(key => !integrationKeys[key]);
+    
+    if (missingKeys.length > 0) {
+      console.error('❌ MISSING CREDENTIALS IN DATABASE:', missingKeys);
+      throw new Error(`Missing credentials: ${missingKeys.join(', ')}`);
     }
+
+    console.log('✅ All credentials present in database');
 
     const payload = {
       merchantHashId: integrationKeys.merchantHashId,
@@ -944,13 +929,10 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
       payload.txnAmount = transactionData.amount.toString();
     }
 
-    console.log('🟡 SENDING TO ENPAY API:', {
-      url: integrationKeys.baseUrl + '/dynamicQR',
-      payload: payload
-    });
+    console.log('🟡 Sending to Enpay API with database credentials...');
 
     const response = await axios.post(
-      integrationKeys.baseUrl + '/dynamicQR',
+      (integrationKeys.baseUrl || 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway') + '/dynamicQR',
       payload,
       {
         headers: {
@@ -962,12 +944,8 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
       }
     );
 
-    console.log('✅ ENPAY API SUCCESS:', {
-      code: response.data.code,
-      message: response.data.message,
-      hasQR: !!response.data.details
-    });
-
+    console.log('✅ ENPAY API SUCCESS with database credentials');
+    
     if (response.data.code === 0) {
       return {
         success: true,
@@ -981,14 +959,10 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
     }
     
   } catch (error) {
-    console.error('❌ ENPAY API FAILED:', {
+    console.error('❌ ENPAY API FAILED with database credentials:', {
       message: error.message,
       status: error.response?.status,
-      data: error.response?.data,
-      credentialsUsed: {
-        key: integrationKeys['X-Merchant-Key'],
-        secret: integrationKeys['X-Merchant-Secret'] ? '***' : 'MISSING'
-      }
+      data: error.response?.data
     });
     throw error;
   }
