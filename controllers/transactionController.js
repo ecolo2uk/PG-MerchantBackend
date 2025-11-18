@@ -819,9 +819,14 @@ const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() 
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
 // ✅ GET MERCHANT CONNECTOR ACCOUNT
+// ✅ GET MERCHANT CONNECTOR ACCOUNT - IMPROVED
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
-    console.log('🟡 Fetching merchant connector account for:', merchantId);
+    console.log('🟡 Fetching merchant connector account for merchantId:', merchantId);
+    
+    // ✅ CORRECT COLLECTION NAME CHECK
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    console.log('📋 Available collections:', collections.map(c => c.name));
     
     const connectorAccount = await mongoose.connection.db.collection('merchantconnectoraccounts')
       .findOne({ 
@@ -829,15 +834,25 @@ export const getMerchantConnectorAccount = async (merchantId) => {
         status: "Active"
       });
 
+    console.log('🔍 Raw query result:', connectorAccount);
+
     if (!connectorAccount) {
       console.log('❌ No active connector account found for merchant:', merchantId);
+      
+      // ✅ CHECK IF MERCHANT EXISTS
+      const merchant = await mongoose.connection.db.collection('merchants')
+        .findOne({ _id: new mongoose.Types.ObjectId(merchantId) });
+      console.log('👤 Merchant exists:', !!merchant);
+      
       return null;
     }
 
     console.log('✅ Merchant Connector Account Found:', {
+      _id: connectorAccount._id,
       terminalId: connectorAccount.terminalId,
       connectorId: connectorAccount.connectorId,
-      hasIntegrationKeys: !!connectorAccount.integrationKeys
+      hasIntegrationKeys: !!connectorAccount.integrationKeys,
+      integrationKeys: Object.keys(connectorAccount.integrationKeys || {})
     });
 
     return connectorAccount;
