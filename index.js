@@ -9,6 +9,7 @@ import merchantAuthRoutes from './routes/merchantAuthRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 
+import merchantRoutes from './routes/merchant.js';
 dotenv.config();
 
 const app = express();
@@ -27,7 +28,7 @@ connectDB();
 app.use('/api/merchant/auth', merchantAuthRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-
+app.use('/api/merchant', merchantRoutes);
 
 
 app.get('/', (req, res) => {

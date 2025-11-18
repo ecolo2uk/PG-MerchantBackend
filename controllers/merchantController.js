@@ -5,6 +5,8 @@ export const getMerchantConnector = async (req, res) => {
   try {
     const merchantId = req.user.id;
     
+    console.log('🔧 Fetching merchant connector for:', merchantId);
+    
     const connectorAccount = await mongoose.connection.db.collection('merchantconnectoraccounts')
       .findOne({ 
         merchantId: new mongoose.Types.ObjectId(merchantId),
@@ -26,10 +28,12 @@ export const getMerchantConnector = async (req, res) => {
       success: true,
       connectorAccount: {
         terminalId: connectorAccount.terminalId,
-        connectorName: connector?.name || 'N/A',
+        connectorName: connector?.name || 'Unknown',
+        connectorType: connector?.connectorType || 'UPI',
         industry: connectorAccount.industry,
         percentage: connectorAccount.percentage,
-        isPrimary: connectorAccount.isPrimary
+        isPrimary: connectorAccount.isPrimary,
+        integrationKeys: connectorAccount.integrationKeys || {}
       }
     });
 
