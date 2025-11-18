@@ -907,57 +907,74 @@ export const generateGenericDynamicQR = async (transactionData, merchantConnecto
 // ✅ ENPAY QR GENERATION (DYNAMIC CREDENTIALS)
 const generateEnpayQR = async (transactionData, integrationKeys) => {
   try {
-    const { amount, txnNote, transactionId } = transactionData;
-    
-    // ✅ DYNAMIC CREDENTIALS - NO STATIC DATA
-    const merchantHashId = integrationKeys.merchantHashId;
-    const xMerchantKey = integrationKeys['X-Merchant-Key'];
-    const xMerchantSecret = integrationKeys['X-Merchant-Secret'];
-    const baseUrl = integrationKeys.baseUrl;
+    console.log('🔍 CHECKING ENPAY CREDENTIALS:');
+    console.log('Merchant Hash ID:', integrationKeys.merchantHashId);
+    console.log('X-Merchant-Key:', integrationKeys['X-Merchant-Key']);
+    console.log('X-Merchant-Secret:', integrationKeys['X-Merchant-Secret'] ? '***PRESENT***' : 'MISSING');
+    console.log('Base URL:', integrationKeys.baseUrl);
 
-    if (!merchantHashId || !xMerchantKey || !xMerchantSecret) {
-      throw new Error('Enpay credentials not found in integration keys');
+    // ✅ CREDENTIALS VALIDATION
+    if (!integrationKeys['X-Merchant-Key'] || !integrationKeys['X-Merchant-Secret']) {
+      console.error('❌ CREDENTIALS MISSING IN DATABASE');
+      throw new Error('Enpay credentials missing in integration keys');
     }
 
     const payload = {
-      merchantHashId: merchantHashId,
-      txnNote: txnNote || 'Payment for Order',
-      txnRefId: transactionId
+      merchantHashId: integrationKeys.merchantHashId,
+      txnNote: transactionData.txnNote || 'Payment for Order',
+      txnRefId: transactionData.transactionId
     };
 
-    if (amount && amount > 0) {
-      payload.txnAmount = amount.toString();
+    if (transactionData.amount && transactionData.amount > 0) {
+      payload.txnAmount = transactionData.amount.toString();
     }
 
-    console.log('🟡 Enpay API Payload:', payload);
+    console.log('🟡 SENDING TO ENPAY API:', {
+      url: integrationKeys.baseUrl + '/dynamicQR',
+      payload: payload
+    });
 
     const response = await axios.post(
-      baseUrl || 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/dynamicQR',
+      integrationKeys.baseUrl + '/dynamicQR',
       payload,
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-Merchant-Key': xMerchantKey,
-          'X-Merchant-Secret': xMerchantSecret
+          'X-Merchant-Key': integrationKeys['X-Merchant-Key'],
+          'X-Merchant-Secret': integrationKeys['X-Merchant-Secret']
         },
         timeout: 25000
       }
     );
 
+    console.log('✅ ENPAY API SUCCESS:', {
+      code: response.data.code,
+      message: response.data.message,
+      hasQR: !!response.data.details
+    });
+
     if (response.data.code === 0) {
       return {
         success: true,
         qrData: response.data.details,
-        paymentUrl: `upi://pay?tr=${transactionId}`,
+        paymentUrl: `upi://pay?tr=${transactionData.transactionId}`,
         connector: 'enpay',
         message: 'QR generated via Enpay'
       };
     } else {
-      throw new Error(response.data.message || 'Enpay API error');
+      throw new Error(response.data.message || `Enpay API error: ${response.data.code}`);
     }
     
   } catch (error) {
-    console.error('❌ Enpay QR Error:', error);
+    console.error('❌ ENPAY API FAILED:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+      credentialsUsed: {
+        key: integrationKeys['X-Merchant-Key'],
+        secret: integrationKeys['X-Merchant-Secret'] ? '***' : 'MISSING'
+      }
+    });
     throw error;
   }
 };
