@@ -818,8 +818,7 @@ import axios from 'axios';
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// ✅ IMPROVED GET MERCHANT CONNECTOR ACCOUNT
-// transactionController.js में temporary fix
+
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
     console.log('🟡 DIRECT DATABASE QUERY for merchantId:', merchantId);
@@ -832,8 +831,25 @@ export const getMerchantConnectorAccount = async (merchantId) => {
       });
 
     if (connectorAccount) {
-      console.log('✅ DIRECT QUERY SUCCESS - Connector found with integrationKeys:', 
-        !!connectorAccount.integrationKeys);
+      console.log('✅ DIRECT QUERY SUCCESS - Connector found:', {
+        connectorId: connectorAccount.connectorId,
+        terminalId: connectorAccount.terminalId,
+        hasIntegrationKeys: !!connectorAccount.integrationKeys
+      });
+      
+      // ✅ IF INTEGRATION KEYS MISSING, ADD THEM FROM CONNECTOR
+      if (!connectorAccount.integrationKeys) {
+        console.log('⚠️ Integration keys missing, fetching from connector...');
+        
+        const connector = await mongoose.connection.db.collection('connectors')
+          .findOne({ _id: connectorAccount.connectorId });
+          
+        if (connector && connector.integrationKeys) {
+          connectorAccount.integrationKeys = connector.integrationKeys;
+          console.log('✅ Added integration keys from connector');
+        }
+      }
+      
       return connectorAccount;
     }
     
@@ -846,11 +862,9 @@ export const getMerchantConnectorAccount = async (merchantId) => {
   }
 };
 
-// ✅ GENERIC QR GENERATION - ALL CONNECTORS
+
 export const generateGenericDynamicQR = async (transactionData, merchantConnectorAccount) => {
   try {
-    const { amount, txnNote, transactionId, merchantName } = transactionData;
-    
     console.log('🟡 Generating QR with Generic Connector System');
     
     if (!merchantConnectorAccount) {
@@ -858,7 +872,6 @@ export const generateGenericDynamicQR = async (transactionData, merchantConnecto
       return await generateFallbackQR(transactionData);
     }
 
-    // ✅ GET CONNECTOR DETAILS
     const connector = await mongoose.connection.db.collection('connectors')
       .findOne({ _id: merchantConnectorAccount.connectorId });
 
@@ -867,20 +880,10 @@ export const generateGenericDynamicQR = async (transactionData, merchantConnecto
       return await generateFallbackQR(transactionData);
     }
 
-    console.log('🔍 Connector Details:', {
-      connectorName: connector.name,
-      connectorType: connector.connectorType,
-      className: connector.className
-    });
-
-    // ✅ EXTRACT INTEGRATION KEYS DYNAMICALLY
     const integrationKeys = merchantConnectorAccount.integrationKeys || {};
-    
-    console.log('🔍 Integration Keys Available:', Object.keys(integrationKeys));
-
-    // ✅ DIFFERENT CONNECTORS HANDLE DIFFERENTLY
     const connectorName = connector.name?.toLowerCase();
     
+    // ✅ SUPPORT MULTIPLE CONNECTORS
     if (connectorName === 'enpay') {
       return await generateEnpayQR(transactionData, integrationKeys);
     } 
@@ -890,9 +893,12 @@ export const generateGenericDynamicQR = async (transactionData, merchantConnecto
     else if (connectorName === 'paytm') {
       return await generatePaytmQR(transactionData, integrationKeys);
     }
+    else if (connectorName === 'phonepe') {
+      return await generatePhonePeQR(transactionData, integrationKeys);
+    }
     else {
-      // ✅ DEFAULT FALLBACK FOR UNKNOWN CONNECTORS
-      console.log(`⚠️ Unknown connector: ${connectorName}, using fallback`);
+      // ✅ DEFAULT FALLBACK FOR ANY CONNECTOR
+      console.log(`⚠️ Using fallback for connector: ${connectorName}`);
       return await generateFallbackQR(transactionData);
     }
     
@@ -902,6 +908,96 @@ export const generateGenericDynamicQR = async (transactionData, merchantConnecto
   }
 };
 
+
+const generatePhonePeQR = async (transactionData, integrationKeys) => {
+  try {
+    const { amount, txnNote, transactionId, merchantName } = transactionData;
+    
+    const merchantId = integrationKeys.merchant_id;
+    const saltKey = integrationKeys.salt_key;
+    const saltIndex = integrationKeys.salt_index;
+
+    if (!merchantId || !saltKey || !saltIndex) {
+      throw new Error('PhonePe credentials not found');
+    }
+
+    const payload = {
+      merchantId: merchantId,
+      merchantTransactionId: transactionId,
+      amount: amount ? amount * 100 : 100, // in paise
+      merchantUserId: `MUID${Date.now()}`,
+      redirectUrl: `${integrationKeys.baseUrl}/callback`,
+      redirectMode: "REDIRECT",
+      callbackUrl: `${integrationKeys.baseUrl}/webhook`,
+      paymentInstrument: {
+        type: "UPI_INTENT"
+      }
+    };
+
+    // PhonePe requires specific encoding
+    const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64');
+    const stringToHash = base64Payload + '/pg/v1/pay' + saltKey;
+    const xVerify = sha256(stringToHash) + '###' + saltIndex;
+
+    const response = await axios.post(
+      integrationKeys.baseUrl || 'https://api.phonepe.com/apis/hermes/pg/v1/pay',
+      { request: base64Payload },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-VERIFY': xVerify
+        },
+        timeout: 25000
+      }
+    );
+
+    if (response.data.success) {
+      return {
+        success: true,
+        qrData: response.data.data.instrumentResponse.intentUrl,
+        paymentUrl: response.data.data.instrumentResponse.intentUrl,
+        connector: 'phonepe',
+        message: 'QR generated via PhonePe'
+      };
+    } else {
+      throw new Error(response.data.message || 'PhonePe QR generation failed');
+    }
+    
+  } catch (error) {
+    console.error('❌ PhonePe QR Error:', error);
+    throw error;
+  }
+};
+
+
+const generateGooglePayQR = async (transactionData, integrationKeys) => {
+  try {
+    const { amount, txnNote, transactionId, merchantName } = transactionData;
+    
+    const merchantId = integrationKeys.merchant_id;
+    const merchantDisplayName = integrationKeys.merchant_name; // ✅ CHANGED VARIABLE NAME
+
+    if (!merchantId) {
+      throw new Error('Google Pay credentials not found');
+    }
+
+    // Google Pay UPI QR format
+    const upiUrl = `upi://pay?pa=${merchantId}&pn=${encodeURIComponent(merchantDisplayName || merchantName)}&am=${amount}&tn=${encodeURIComponent(txnNote)}&tr=${transactionId}`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiUrl)}`;
+
+    return {
+      success: true,
+      qrData: qrCodeUrl,
+      paymentUrl: upiUrl,
+      connector: 'googlepay',
+      message: 'QR generated via Google Pay'
+    };
+    
+  } catch (error) {
+    console.error('❌ Google Pay QR Error:', error);
+    throw error;
+  }
+};
 // ✅ ENPAY QR GENERATION (DYNAMIC CREDENTIALS)
 const generateEnpayQR = async (transactionData, integrationKeys) => {
   try {
@@ -1227,22 +1323,6 @@ export const generateDefaultQR = async (req, res) => {
     const merchantId = req.user.id;
     const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
 
-    // ✅ GET MERCHANT CONNECTOR ACCOUNT
-    const merchantConnectorAccount = await getMerchantConnectorAccount(merchantId);
-    
-    let connectorInfo = null;
-    let connectorName = 'fallback';
-
-    if (merchantConnectorAccount) {
-      const connector = await mongoose.connection.db.collection('connectors')
-        .findOne({ _id: merchantConnectorAccount.connectorId });
-      
-      connectorInfo = {
-        connectorName: connector?.name || 'Unknown'
-      };
-      connectorName = connector?.name?.toLowerCase() || 'fallback';
-    }
-
     const transactionId = `DFT${Date.now()}`;
     const vendorRefId = generateVendorRefId();
 
@@ -1259,24 +1339,24 @@ export const generateDefaultQR = async (req, res) => {
       merchantOrderId: `ORDER${Date.now()}`,
       txnRefId: transactionId,
       isDefaultQR: true,
-      connectorUsed: connectorName
+      connectorUsed: 'fallback'
     };
 
-    console.log('🔵 Creating default QR transaction with connector:', connectorName);
+    console.log('🔵 Creating default QR transaction');
 
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
     
     console.log('✅ Default QR transaction saved:', savedTransaction.transactionId);
 
-    // ✅ GENERIC QR GENERATION FOR DEFAULT QR (NO AMOUNT)
-    console.log('🟡 Calling Generic QR Generation for Default QR...');
-    const qrResult = await generateGenericDynamicQR({
+    // ✅ FALLBACK QR GENERATION FOR DEFAULT QR
+    console.log('🟡 Generating Fallback QR for Default QR...');
+    const qrResult = await generateFallbackQR({
       amount: null, // No amount for default QR
       txnNote: 'Default QR Code',
       transactionId,
       merchantName
-    }, merchantConnectorAccount);
+    });
 
     // UPDATE TRANSACTION
     savedTransaction.qrCode = qrResult.qrData;
@@ -1284,7 +1364,7 @@ export const generateDefaultQR = async (req, res) => {
     savedTransaction.connectorUsed = qrResult.connector;
     await savedTransaction.save();
 
-    console.log('✅ Default QR generated successfully via:', qrResult.connector);
+    console.log('✅ Default QR generated successfully via fallback');
 
     res.status(200).json({
       success: true,
@@ -1294,7 +1374,6 @@ export const generateDefaultQR = async (req, res) => {
       status: savedTransaction.status,
       isDefault: true,
       connector: qrResult.connector,
-      connectorInfo: connectorInfo,
       message: qrResult.message
     });
 
@@ -1307,6 +1386,7 @@ export const generateDefaultQR = async (req, res) => {
     });
   }
 };
+
 
 // Other functions remain same (getTransactions, simpleDebug, etc.)
 export const getTransactions = async (req, res) => {
