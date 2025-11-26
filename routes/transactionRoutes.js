@@ -4,9 +4,8 @@ import {
   getTransactions,
   generateDynamicQR,
   generateDefaultQR,
-  // checkTransactionStatus,
-  // getTransactionDetails,
-  // testConnection,
+  getMerchantConnector,
+  debugConnectorData,
   simpleDebug,
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
@@ -16,9 +15,8 @@ const router = express.Router();
 router.get("/", authenticateMerchant, getTransactions);
 router.post("/generate-qr", authenticateMerchant, generateDynamicQR);
 router.post("/default-qr", authenticateMerchant, generateDefaultQR);
-// router.get("/status/:transactionId", authenticateMerchant, checkTransactionStatus);
-// router.get("/details/:transactionId", authenticateMerchant, getTransactionDetails);
-// router.get("/test-connection", authenticateMerchant, testConnection);
+router.get("/connector", authenticateMerchant, getMerchantConnector);
+router.get("/debug-connector", authenticateMerchant, debugConnectorData);
 router.get("/debug", authenticateMerchant, simpleDebug);
 
 export default router;
