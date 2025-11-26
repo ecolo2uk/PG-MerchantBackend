@@ -8,8 +8,9 @@ const transactionSchema = new mongoose.Schema({
     unique: true
   },
   merchantId: {
-    type: mongoose.Schema.Types.Mixed,
-    required: true
+    type: String,  // ✅ String म्हणून बदला
+    required: true,
+    index: true
   },
   merchantName: {
     type: String,
