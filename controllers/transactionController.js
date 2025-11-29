@@ -8,7 +8,7 @@ import axios from 'axios';
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateVendorRefId = () => `VENDOR${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-// ✅ SIMPLE DEBUG FUNCTION (ADD THIS)
+
 export const simpleDebug = async (req, res) => {
   try {
     console.log('🔧 Simple Debug Endpoint Hit');
@@ -46,7 +46,7 @@ export const simpleDebug = async (req, res) => {
   }
 };
 
-// ✅ GET MERCHANT CONNECTOR ACCOUNT (FIXED - CORRECT FIELD NAMES)
+
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
     console.log('🟡 Fetching merchant connector account for merchantId:', merchantId);
@@ -96,10 +96,10 @@ export const getMerchantConnectorAccount = async (merchantId) => {
   }
 };
 
-// ✅ GET INTEGRATION KEYS FROM CONNECTOR ACCOUNT
+
 const getIntegrationKeys = (connectorAccount) => {
   try {
-    // Check both possible field names for integration keys
+    
     const integrationKeys = connectorAccount.integratedonKeys || connectorAccount.integrationKeys;
     
     if (!integrationKeys) {
@@ -116,7 +116,7 @@ const getIntegrationKeys = (connectorAccount) => {
   }
 };
 
-// ✅ CASHFREE QR GENERATION (DYNAMIC FROM DATABASE)
+
 const generateCashfreeQR = async (transactionData, integrationKeys) => {
   try {
     const { amount, txnNote, transactionId, merchantName } = transactionData;

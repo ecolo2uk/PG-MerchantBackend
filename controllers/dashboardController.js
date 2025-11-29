@@ -1,4 +1,4 @@
-// controllers/dashboardController.js
+// controllers/merchantDashboardController.js
 import Transaction from '../models/Transaction.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
@@ -63,7 +63,7 @@ const getDateRange = (filter, startDate, endDate) => {
   };
 };
 
-// ✅ IMPROVED: Merchant Analytics with ALL status support
+// Get merchant analytics
 export const getMerchantAnalytics = async (req, res) => {
   try {
     const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
@@ -75,7 +75,7 @@ export const getMerchantAnalytics = async (req, res) => {
     }
 
     let matchQuery = {
-      merchantId: merchantId // ✅ Direct string comparison
+      merchantId: merchantId
     };
 
     const dateRange = getDateRange(timeFilter, startDate, endDate);
@@ -84,16 +84,6 @@ export const getMerchantAnalytics = async (req, res) => {
     }
 
     console.log('🔍 Merchant Analytics Match Query:', JSON.stringify(matchQuery, null, 2));
-
-    // 🔍 DEBUG: Check what transactions actually exist
-    const debugTransactions = await Transaction.find(matchQuery).select('status amount createdAt merchantId').lean();
-    console.log('🔍 DEBUG - Found transactions:', debugTransactions.length);
-    console.log('🔍 DEBUG - Transaction details:', debugTransactions.map(t => ({ 
-      status: t.status, 
-      amount: t.amount,
-      merchantId: t.merchantId,
-      createdAt: t.createdAt
-    })));
 
     const analytics = await Transaction.aggregate([
       { $match: matchQuery },
@@ -157,21 +147,11 @@ export const getMerchantAnalytics = async (req, res) => {
       totalTransactions: 0
     };
 
-    // Remove _id field from result
     delete result._id;
 
     console.log('✅ Merchant Analytics Result:', result);
-    console.log('✅ DEBUG - Actual transactions found:', debugTransactions.length);
     
-    res.status(200).json({
-      ...result,
-      debugInfo: {
-        merchantIdUsed: merchantId,
-        timeFilter: timeFilter,
-        actualTransactions: debugTransactions.length,
-        dateRange: dateRange
-      }
-    });
+    res.status(200).json(result);
 
   } catch (error) {
     console.error('❌ Merchant Analytics Error:', error);
@@ -183,7 +163,7 @@ export const getMerchantAnalytics = async (req, res) => {
   }
 };
 
-// ✅ IMPROVED: Merchant Transactions with better filtering
+// Get merchant transactions
 export const getMerchantTransactions = async (req, res) => {
   try {
     const { merchantId, status, timeFilter = 'today', page = 1, limit = 10, startDate, endDate } = req.query;
@@ -195,7 +175,7 @@ export const getMerchantTransactions = async (req, res) => {
     }
 
     let matchQuery = {
-      merchantId: merchantId // ✅ Direct string comparison
+      merchantId: merchantId
     };
 
     // Status filter
@@ -221,9 +201,8 @@ export const getMerchantTransactions = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Get transactions with pagination
     const transactions = await Transaction.find(matchQuery)
-      .select('transactionId merchantOrderId amount status currency createdAt updatedAt merchantName customerName customerVPA paymentMethod settlementStatus commission netAmount')
+      .select('transactionId merchantOrderId amount status currency createdAt updatedAt merchantName customerName customerVPA')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -232,14 +211,6 @@ export const getMerchantTransactions = async (req, res) => {
     const totalCount = await Transaction.countDocuments(matchQuery);
 
     console.log(`✅ Found ${transactions.length} transactions for merchant ${merchantId}`);
-    console.log('🔍 Sample transaction:', transactions.length > 0 ? {
-      id: transactions[0]._id,
-      transactionId: transactions[0].transactionId,
-      status: transactions[0].status,
-      amount: transactions[0].amount,
-      merchantId: transactions[0].merchantId,
-      createdAt: transactions[0].createdAt
-    } : 'No transactions');
 
     res.status(200).json({
       docs: transactions,
@@ -248,12 +219,7 @@ export const getMerchantTransactions = async (req, res) => {
       page: parseInt(page),
       totalPages: Math.ceil(totalCount / parseInt(limit)),
       hasNextPage: page * limit < totalCount,
-      hasPrevPage: page > 1,
-      debugInfo: {
-        merchantId: merchantId,
-        matchQuery: matchQuery,
-        totalMatching: totalCount
-      }
+      hasPrevPage: page > 1
     });
 
   } catch (error) {
@@ -266,7 +232,7 @@ export const getMerchantTransactions = async (req, res) => {
   }
 };
 
-// ✅ IMPROVED: Sales Report with proper data grouping
+// Get merchant sales report
 export const getMerchantSalesReport = async (req, res) => {
   try {
     const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
@@ -286,8 +252,6 @@ export const getMerchantSalesReport = async (req, res) => {
       matchQuery.createdAt = dateRange.createdAt;
     }
 
-    console.log('🔍 Sales Report Match Query:', JSON.stringify(matchQuery, null, 2));
-
     const salesReport = await Transaction.aggregate([
       { $match: matchQuery },
       {
@@ -298,26 +262,6 @@ export const getMerchantSalesReport = async (req, res) => {
                 format: "%Y-%m-%d",
                 date: "$createdAt"
               }
-            }
-          },
-          totalIncome: {
-            $sum: {
-              $cond: [{ $eq: ["$status", "SUCCESS"] }, { $ifNull: ["$amount", 0] }, 0]
-            }
-          },
-          totalCostOfSales: {
-            $sum: {
-              $cond: [{ $eq: ["$status", "FAILED"] }, { $ifNull: ["$amount", 0] }, 0]
-            }
-          },
-          totalRefundAmount: {
-            $sum: {
-              $cond: [{ $eq: ["$status", "REFUNDED"] }, { $ifNull: ["$amount", 0] }, 0]
-            }
-          },
-          totalPendingAmount: {
-            $sum: {
-              $cond: [{ $in: ["$status", ["PENDING", "INITIATED", "CREATED"]] }, { $ifNull: ["$amount", 0] }, 0]
             }
           },
           successCount: {
@@ -338,10 +282,6 @@ export const getMerchantSalesReport = async (req, res) => {
         $project: {
           _id: 0,
           date: "$_id.date",
-          totalIncome: 1,
-          totalCostOfSales: 1,
-          totalRefundAmount: 1,
-          totalPendingAmount: 1,
           successCount: 1,
           failedCount: 1,
           pendingCount: 1,
@@ -351,8 +291,6 @@ export const getMerchantSalesReport = async (req, res) => {
       { $sort: { date: 1 } }
     ]);
 
-    console.log(`✅ Sales report fetched: ${salesReport.length} entries`);
-    
     // Fill missing dates
     let filledReport = fillMissingDates(salesReport, timeFilter);
     
@@ -364,7 +302,7 @@ export const getMerchantSalesReport = async (req, res) => {
   }
 };
 
-// ✅ ADDED: Get current merchant info
+// Get current merchant info
 export const getCurrentMerchant = async (req, res) => {
   try {
     const { merchantId } = req.query;
@@ -387,74 +325,6 @@ export const getCurrentMerchant = async (req, res) => {
       message: 'Server Error',
       error: error.message
     });
-  }
-};
-
-// ✅ ADDED: Debug endpoint to check ALL data
-export const debugMerchantData = async (req, res) => {
-  try {
-    const { merchantId } = req.query;
-
-    console.log('🔍 Debugging merchant data for:', merchantId);
-
-    if (!merchantId) {
-      return res.status(400).json({ message: 'Merchant ID is required' });
-    }
-
-    // Check merchant in User collection
-    let merchantUser;
-    if (mongoose.Types.ObjectId.isValid(merchantId)) {
-      merchantUser = await User.findById(merchantId);
-    } else {
-      merchantUser = await User.findOne({ 
-        $or: [
-          { _id: merchantId },
-          { email: merchantId },
-          { company: merchantId }
-        ]
-      });
-    }
-    console.log('🔍 Merchant User:', merchantUser);
-
-    // Check ALL transactions with different merchant ID formats
-    const stringMerchantTransactions = await Transaction.find({ merchantId: merchantId });
-    console.log('🔍 Transactions with string merchantId:', stringMerchantTransactions.length);
-
-    let objectIdTransactions = [];
-    if (mongoose.Types.ObjectId.isValid(merchantId)) {
-      objectIdTransactions = await Transaction.find({ 
-        merchantId: new mongoose.Types.ObjectId(merchantId) 
-      });
-      console.log('🔍 Transactions with ObjectId merchantId:', objectIdTransactions.length);
-    }
-
-    // Check ALL transactions regardless of merchant
-    const allTransactions = await Transaction.find().limit(10);
-    console.log('🔍 ALL transactions in database (first 10):', allTransactions.map(t => ({
-      _id: t._id,
-      merchantId: t.merchantId,
-      status: t.status,
-      amount: t.amount,
-      createdAt: t.createdAt
-    })));
-
-    // Check transaction schema
-    const sampleTransaction = await Transaction.findOne();
-    console.log('🔍 Transaction schema sample:', sampleTransaction ? {
-      fields: Object.keys(sampleTransaction.toObject())
-    } : 'No transactions in database');
-
-    res.status(200).json({
-      merchant: merchantUser,
-      transactionsWithStringId: stringMerchantTransactions.length,
-      transactionsWithObjectId: objectIdTransactions.length,
-      allTransactionsSample: allTransactions,
-      transactionSchema: sampleTransaction ? Object.keys(sampleTransaction.toObject()) : []
-    });
-
-  } catch (error) {
-    console.error('❌ Debug error:', error);
-    res.status(500).json({ error: error.message });
   }
 };
 
@@ -482,10 +352,6 @@ const fillMissingDates = (existingData, timeFilter) => {
     } else {
       result.push({
         date: dateString,
-        totalIncome: 0,
-        totalCostOfSales: 0,
-        totalRefundAmount: 0,
-        totalPendingAmount: 0,
         successCount: 0,
         failedCount: 0,
         pendingCount: 0,
@@ -495,4 +361,44 @@ const fillMissingDates = (existingData, timeFilter) => {
   }
   
   return result;
+};
+
+// Backend मध्ये debug endpoint add करा
+export const debugMerchantTransactions = async (req, res) => {
+  try {
+    const { merchantId } = req.query;
+    
+    console.log('🔍 Debugging merchant transactions for:', merchantId);
+    
+    // Check transactions with this merchant ID
+    const transactions = await Transaction.find({ 
+      merchantId: merchantId 
+    });
+    
+    console.log(`📊 Found ${transactions.length} transactions for merchant ${merchantId}`);
+    
+    // Check ALL transactions to see what merchant IDs exist
+    const allTransactions = await Transaction.find().limit(10);
+    const merchantIds = [...new Set(allTransactions.map(t => t.merchantId))];
+    
+    console.log('🔍 All merchant IDs in database:', merchantIds);
+    
+    res.json({
+      merchantId: merchantId,
+      transactionsFound: transactions.length,
+      transactions: transactions,
+      allMerchantIds: merchantIds,
+      sampleTransactions: allTransactions.map(t => ({
+        _id: t._id,
+        merchantId: t.merchantId,
+        status: t.status,
+        amount: t.amount,
+        createdAt: t.createdAt
+      }))
+    });
+    
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ error: error.message });
+  }
 };
