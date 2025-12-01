@@ -556,7 +556,7 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
       return res.status(400).json({ message: 'Merchant ID is required' });
     }
 
-    // ✅ Use same logic as getMerchantAnalytics
+    // ✅ Handle both ObjectId and string formats
     let matchQuery = {
       $or: [
         { merchantId: new mongoose.Types.ObjectId(merchantId) },
@@ -577,7 +577,35 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
 
     console.log('🔍 Current Merchant Analytics Match Query:', JSON.stringify(matchQuery, null, 2));
 
-    // Use the same aggregation logic as getMerchantAnalytics
+    // First check if any transactions exist
+    const transactionCount = await Transaction.countDocuments(matchQuery);
+    console.log(`📊 Total transactions found: ${transactionCount}`);
+
+    if (transactionCount === 0) {
+      console.log('⚠️ No transactions found for this merchant');
+      
+      return res.status(200).json({
+        totalSuccessAmount: 0,
+        totalFailedAmount: 0,
+        totalPendingAmount: 0,
+        totalRefundAmount: 0,
+        totalSuccessOrders: 0,
+        totalFailedOrders: 0,
+        totalPendingOrders: 0,
+        totalRefundOrders: 0,
+        totalTransactions: 0,
+        message: 'No transactions found for this merchant',
+        merchantId: merchantId,
+        suggestion: 'Create transactions through payment gateway'
+      });
+    }
+
+    // Get sample transactions to check statuses
+    const sampleTransactions = await Transaction.find(matchQuery).limit(5);
+    const statuses = [...new Set(sampleTransactions.map(t => t.status))];
+    console.log('📊 Statuses found:', statuses);
+
+    // Enhanced aggregation for unified schema
     const analytics = await Transaction.aggregate([
       { $match: matchQuery },
       {
@@ -633,8 +661,6 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
                 if: {
                   $or: [
                     { $eq: ["$unifiedStatus", "SUCCESS"] },
-                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
-                    { $eq: ["$unifiedStatus", "COMPLETED"] },
                     { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
                   ]
                 },
@@ -649,9 +675,6 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
                 if: {
                   $or: [
                     { $eq: ["$unifiedStatus", "FAILED"] },
-                    { $eq: ["$unifiedStatus", "FAILURE"] },
-                    { $eq: ["$unifiedStatus", "FALLED"] },
-                    { $eq: ["$unifiedStatus", "REJECTED"] },
                     { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
                   ]
                 },
@@ -667,8 +690,6 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
                   $or: [
                     { $eq: ["$unifiedStatus", "PENDING"] },
                     { $eq: ["$unifiedStatus", "INITIATED"] },
-                    { $eq: ["$unifiedStatus", "GENERATED"] },
-                    { $eq: ["$unifiedStatus", "PROCESSING"] },
                     { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
                   ]
                 },
@@ -683,8 +704,6 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
                 if: {
                   $or: [
                     { $eq: ["$unifiedStatus", "REFUND"] },
-                    { $eq: ["$unifiedStatus", "REFUNDED"] },
-                    { $eq: ["$unifiedStatus", "CANCELLED"] },
                     { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
                   ]
                 },
@@ -699,8 +718,6 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
                 if: {
                   $or: [
                     { $eq: ["$unifiedStatus", "SUCCESS"] },
-                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
-                    { $eq: ["$unifiedStatus", "COMPLETED"] },
                     { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
                   ]
                 },
@@ -715,9 +732,6 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
                 if: {
                   $or: [
                     { $eq: ["$unifiedStatus", "FAILED"] },
-                    { $eq: ["$unifiedStatus", "FAILURE"] },
-                    { $eq: ["$unifiedStatus", "FALLED"] },
-                    { $eq: ["$unifiedStatus", "REJECTED"] },
                     { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
                   ]
                 },
@@ -733,8 +747,6 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
                   $or: [
                     { $eq: ["$unifiedStatus", "PENDING"] },
                     { $eq: ["$unifiedStatus", "INITIATED"] },
-                    { $eq: ["$unifiedStatus", "GENERATED"] },
-                    { $eq: ["$unifiedStatus", "PROCESSING"] },
                     { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
                   ]
                 },
@@ -749,8 +761,6 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
                 if: {
                   $or: [
                     { $eq: ["$unifiedStatus", "REFUND"] },
-                    { $eq: ["$unifiedStatus", "REFUNDED"] },
-                    { $eq: ["$unifiedStatus", "CANCELLED"] },
                     { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
                   ]
                 },
@@ -780,22 +790,15 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
 
     // Add debug info
     result.merchantId = merchantId;
+    result.transactionCount = transactionCount;
+    result.statusesFound = statuses;
     
-    if (result.totalTransactions === 0) {
-      result.message = "No transactions found in database for this merchant";
-      result.suggestion = "Please create transactions through payment gateway to see analytics";
-    } else {
-      // Check if all transactions are INITIATED
-      const transactions = await Transaction.find(matchQuery).limit(5);
-      const statuses = [...new Set(transactions.map(t => t.status))];
-      
-      result.statusesFound = statuses;
-      result.transactionCount = result.totalTransactions;
-      
-      if (statuses.length === 1 && statuses[0] === "INITIATED") {
-        result.message = "All transactions are in 'INITIATED' status";
-        result.suggestion = "Complete the payments to see success/failed analytics";
-      }
+    // Check if all transactions are INITIATED
+    if (statuses.length === 1 && statuses[0] === "INITIATED") {
+      result.message = "All transactions are in 'INITIATED' status";
+      result.suggestion = "Complete the payments to see success/failed analytics";
+      // Update pending count to include INITIATED transactions
+      result.totalPendingOrders = transactionCount;
     }
 
     console.log('✅ Current Merchant Analytics Result:', result);
