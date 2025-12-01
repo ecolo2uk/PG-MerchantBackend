@@ -8,7 +8,8 @@ import {
   getCurrentMerchantTransactions,
   getCurrentMerchantAnalytics,
   debugMerchantTransactions,
-  checkDatabaseState
+  checkDatabaseState,
+  getMerchantAnalyticsWithInitiated
 } from '../controllers/dashboardController.js';
 
 const router = express.Router();
@@ -29,5 +30,6 @@ router.get('/check-db-state', checkDatabaseState);
 // ✅ ADMIN ROUTES (असल्यास)
 router.get('/sales-report', getMerchantSalesReport); // ✅ हे admin साठी
 
-
+// routes/dashboardRoutes.js मध्ये
+router.get('/merchant/analytics-with-initiated', getMerchantAnalyticsWithInitiated);
 export default router;
