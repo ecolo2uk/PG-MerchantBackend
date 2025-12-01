@@ -473,12 +473,16 @@ export const getTransactions = async (req, res) => {
 };
 
 // ✅ 6. DEFAULT QR - FIXED
+// ✅ 6. DEFAULT QR - COMPLETELY FIXED
 export const generateDefaultQR = async (req, res) => {
   console.log('🔵 ========== GENERATE DEFAULT QR STARTED ==========');
+  console.log('🟡 Merchant ID:', req.user?.id);
+  
+  let savedTransaction = null;
   
   try {
-    const merchantId = req.user.id;
-    const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
+    const merchantId = req.user?.id || req.user?._id;
+    const merchantName = req.user?.firstname + ' ' + (req.user?.lastname || '');
 
     console.log('🔵 Generate Default QR for:', merchantId);
 
@@ -486,13 +490,15 @@ export const generateDefaultQR = async (req, res) => {
     const merchantConnectorAccount = await getMerchantConnectorAccount(merchantId);
     
     if (!merchantConnectorAccount) {
+      console.log('❌ No connector account found for merchant');
       return res.status(400).json({
         success: false,
-        message: 'No payment connector configured'
+        message: 'No payment connector configured',
+        needsSetup: true
       });
     }
 
-    console.log('✅ Merchant connector found for default QR');
+    console.log('✅ Merchant connector found for default QR:', merchantConnectorAccount.name);
 
     const transactionId = `DFT${Date.now()}`;
     const txnRefId = transactionId;
@@ -502,7 +508,7 @@ export const generateDefaultQR = async (req, res) => {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      amount: null,
+      amount: null, // ✅ NULL for default QR (no amount)
       status: 'INITIATED',
       txnNote: 'Default QR Payment',
       isDefaultQR: true,
@@ -527,23 +533,33 @@ export const generateDefaultQR = async (req, res) => {
       // Settlement
       commissionAmount: 0,
       netAmount: 0,
-      mid: req.user.mid || 'ENPAY_MID',
+      mid: req.user?.mid || 'ENPAY_MID',
       settlementStatus: 'UNSETTLED'
     };
 
-    const transaction = new Transaction(transactionData);
-    const savedTransaction = await transaction.save();
-    
-    console.log('✅ Default QR transaction saved:', savedTransaction.transactionId);
+    console.log('📊 Default QR Transaction Data:', transactionData);
 
-    // Generate Enpay QR (without amount)
+    // Save to database
+    const transaction = new Transaction(transactionData);
+    savedTransaction = await transaction.save();
+    
+    console.log('✅ Default QR transaction saved:', savedTransaction._id);
+
+    // ✅ FIX: Generate QR with minimal amount (₹1) for Enpay API
+    console.log('🟡 Calling Enpay API for default QR...');
+    
     const qrResult = await generateEnpayQR({
-      amount: null,
+      amount: 1, // ✅ Send ₹1 for default QR (Enpay requirement)
       txnNote: 'Default QR Payment',
       transactionId,
       merchantName,
       merchantHashId: merchantConnectorAccount.integrationKeys?.merchantHashId
     }, merchantConnectorAccount.integrationKeys);
+
+    console.log('✅ Default QR Generation Result:', {
+      success: qrResult.success,
+      isDefaultQR: qrResult.isDefaultQR
+    });
 
     // Update transaction
     const updateData = {
@@ -553,6 +569,7 @@ export const generateDefaultQR = async (req, res) => {
       enpayResponse: qrResult.enpayResponse,
       enpayTransactionStatus: 'CREATED',
       enpayInitiationStatus: 'ENPAY_CREATED',
+      isDefaultQR: true,
       updatedAt: new Date()
     };
 
@@ -570,15 +587,34 @@ export const generateDefaultQR = async (req, res) => {
       status: updatedTransaction.status,
       isDefault: true,
       connector: 'enpay',
-      message: 'Default QR generated successfully'
+      message: 'Default QR generated successfully',
+      note: 'Note: QR shows ₹1 but user can enter any amount in UPI app'
     });
 
   } catch (error) {
     console.error('❌ Generate Default QR Error:', error);
+    
+    // Update transaction status if it exists
+    if (savedTransaction && savedTransaction._id) {
+      try {
+        await Transaction.findByIdAndUpdate(savedTransaction._id, {
+          status: 'FAILED',
+          enpayInitiationStatus: 'ATTEMPTED_FAILED',
+          enpayError: error.message,
+          updatedAt: new Date()
+        });
+        console.log('✅ Updated default QR transaction as FAILED');
+      } catch (updateError) {
+        console.error('❌ Failed to update transaction status:', updateError);
+      }
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to generate default QR',
-      error: error.message
+      error: error.message,
+      details: error.response?.data || null,
+      connector: 'enpay'
     });
   }
 };
