@@ -496,6 +496,34 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
       });
     }
 
+    // ✅ DEBUG: Check if merchant exists in User collection
+    const merchantExists = await User.findById(merchantId);
+    if (!merchantExists) {
+      console.error('❌ Merchant not found in User collection:', merchantId);
+      return res.status(404).json({
+        message: 'Merchant not found',
+        merchantId: merchantId
+      });
+    }
+    
+    console.log('✅ Merchant found:', {
+      id: merchantExists._id,
+      name: merchantExists.company || `${merchantExists.firstname} ${merchantExists.lastname}`,
+      email: merchantExists.email
+    });
+
+    // ✅ DEBUG: Check transactions in database
+    const totalTransactionsCount = await Transaction.countDocuments();
+    console.log(`📊 Total transactions in database: ${totalTransactionsCount}`);
+
+    // Check transactions for this specific merchant
+    const merchantTransactionsCount = await Transaction.countDocuments({ merchantId: merchantId });
+    console.log(`📊 Transactions for merchant ${merchantId}: ${merchantTransactionsCount}`);
+
+    if (merchantTransactionsCount === 0) {
+      console.log('⚠️ No transactions found for this merchant in database');
+    }
+
     let matchQuery = {};
 
     if (mongoose.Types.ObjectId.isValid(merchantId)) {
