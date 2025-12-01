@@ -7,7 +7,8 @@ import {
   getCurrentMerchant,
   getCurrentMerchantTransactions,
   getCurrentMerchantAnalytics,
-  debugMerchantTransactions
+  debugMerchantTransactions,
+  checkDatabaseState
 } from '../controllers/dashboardController.js';
 
 const router = express.Router();
@@ -75,4 +76,7 @@ router.get('/test-merchant', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+router.get('/check-db-state', checkDatabaseState);
+
 export default router;

@@ -80,22 +80,54 @@ export const getMerchantAnalytics = async (req, res) => {
       return res.status(400).json({ message: 'Merchant ID is required' });
     }
 
-    let matchQuery = {};
+    // ✅ FIXED: Handle both ObjectId and string formats
+    let matchQuery = {
+      $or: [
+        // Try as ObjectId
+        { merchantId: new mongoose.Types.ObjectId(merchantId) },
+        // Try as string
+        { merchantId: merchantId }
+      ]
+    };
 
-    // ✅ Correct merchant ID matching
-    if (mongoose.Types.ObjectId.isValid(merchantId)) {
-      matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
-    } else {
-      matchQuery.merchantId = merchantId;
-    }
-
+    // Apply date filter
     const dateRange = getDateRange(timeFilter, startDate, endDate);
     if (Object.keys(dateRange).length > 0) {
-      matchQuery.createdAt = dateRange.createdAt;
+      // Apply date filter to both OR conditions
+      matchQuery = {
+        $and: [
+          { $or: matchQuery.$or },
+          { createdAt: dateRange.createdAt }
+        ]
+      };
     }
 
     console.log('🔍 Merchant Analytics Match Query:', JSON.stringify(matchQuery, null, 2));
 
+    // Check how many documents match
+    const totalMatches = await Transaction.countDocuments(matchQuery);
+    console.log(`📊 Total matches found: ${totalMatches}`);
+
+    if (totalMatches === 0) {
+      console.log('⚠️ No transactions found for this merchant/date range');
+      
+      // Return zero data with informative message
+      return res.status(200).json({
+        totalSuccessAmount: 0,
+        totalFailedAmount: 0,
+        totalPendingAmount: 0,
+        totalRefundAmount: 0,
+        totalSuccessOrders: 0,
+        totalFailedOrders: 0,
+        totalPendingOrders: 0,
+        totalRefundOrders: 0,
+        totalTransactions: 0,
+        message: `No transactions found for merchant ${merchantId} in selected period`,
+        isDataFound: false
+      });
+    }
+
+    // Rest of your aggregation logic remains same...
     // Enhanced aggregation for unified schema
     const analytics = await Transaction.aggregate([
       { $match: matchQuery },
@@ -108,42 +140,39 @@ export const getMerchantAnalytics = async (req, res) => {
               else: { $ifNull: ["$Amount", 0] }
             }
           },
-         // In controllers/merchantDashboardController.js
-// Update the unifiedStatus logic:
-
-unifiedStatus: {
-  $cond: {
-    if: { $ne: ["$status", undefined] },
-    then: { 
-      $switch: {
-        branches: [
-          { case: { $eq: [{ $toUpper: { $trim: { input: "$status" } } }, "INITIATED"] }, then: "PENDING" },
-          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /INITIATED/i } }, then: "PENDING" },
-          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /SUCCESS/i } }, then: "SUCCESS" },
-          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /FAIL/i } }, then: "FAILED" },
-          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /PENDING/i } }, then: "PENDING" },
-          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /REFUND/i } }, then: "REFUND" }
-        ],
-        default: { $toUpper: { $trim: { input: "$status" } } }
-      }
-    },
-    else: { 
-      $cond: {
-        if: { $ne: ["$Transaction Status", undefined] },
-        then: { 
-          $switch: {
-            branches: [
-              { case: { $eq: [{ $toUpper: { $trim: { input: "$Transaction Status" } } }, "INITIATED"] }, then: "PENDING" },
-              { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$Transaction Status" } } }, regex: /INITIATED/i } }, then: "PENDING" }
-            ],
-            default: { $toUpper: { $trim: { input: "$Transaction Status" } } }
+          unifiedStatus: {
+            $cond: {
+              if: { $ne: ["$status", undefined] },
+              then: { 
+                $switch: {
+                  branches: [
+                    { case: { $eq: [{ $toUpper: { $trim: { input: "$status" } } }, "INITIATED"] }, then: "PENDING" },
+                    { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /INITIATED/i } }, then: "PENDING" },
+                    { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /SUCCESS/i } }, then: "SUCCESS" },
+                    { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /FAIL/i } }, then: "FAILED" },
+                    { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /PENDING/i } }, then: "PENDING" },
+                    { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /REFUND/i } }, then: "REFUND" }
+                  ],
+                  default: { $toUpper: { $trim: { input: "$status" } } }
+                }
+              },
+              else: { 
+                $cond: {
+                  if: { $ne: ["$Transaction Status", undefined] },
+                  then: { 
+                    $switch: {
+                      branches: [
+                        { case: { $eq: [{ $toUpper: { $trim: { input: "$Transaction Status" } } }, "INITIATED"] }, then: "PENDING" },
+                        { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$Transaction Status" } } }, regex: /INITIATED/i } }, then: "PENDING" }
+                      ],
+                      default: { $toUpper: { $trim: { input: "$Transaction Status" } } }
+                    }
+                  },
+                  else: "UNKNOWN"
+                }
+              }
+            }
           }
-        },
-        else: "UNKNOWN"
-      }
-    }
-  }
-}
         }
       },
       {
@@ -299,6 +328,14 @@ unifiedStatus: {
     };
 
     delete result._id;
+    
+    // Add debug info
+    result.debugInfo = {
+      merchantId: merchantId,
+      timeFilter: timeFilter,
+      totalMatches: totalMatches,
+      queryUsed: matchQuery
+    };
 
     console.log('✅ Merchant Analytics Result:', result);
     
@@ -318,7 +355,8 @@ unifiedStatus: {
       totalPendingOrders: 0,
       totalRefundOrders: 0,
       totalTransactions: 0,
-      isError: true
+      isError: true,
+      error: error.message
     };
     
     res.status(500).json(zeroData);
@@ -506,10 +544,7 @@ export const getMerchantSalesReport = async (req, res) => {
   }
 };
 
-// ✅ Get ONLY current merchant's analytics - ONLY REAL DATA
-// controllers/merchantDashboardController.js मध्ये getCurrentMerchantAnalytics function update करा:
 
-// controllers/merchantDashboardController.js मध्ये getCurrentMerchantAnalytics function modify करा:
 
 export const getCurrentMerchantAnalytics = async (req, res) => {
   try {
@@ -1077,6 +1112,68 @@ export const debugAllTransactions = async (req, res) => {
     
   } catch (error) {
     console.error('Debug error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// एक debug function add करा dashboardController.js मध्ये
+export const checkDatabaseState = async (req, res) => {
+  try {
+    const { merchantId } = req.query;
+    
+    console.log('🔍 Checking database state for merchant:', merchantId);
+    
+    // Check ALL transactions (first 20)
+    const allTransactions = await Transaction.find({}).limit(20);
+    
+    // Count by merchantId type
+    let objectIdCount = 0;
+    let stringCount = 0;
+    let nullCount = 0;
+    
+    allTransactions.forEach(t => {
+      if (!t.merchantId) {
+        nullCount++;
+      } else if (mongoose.Types.ObjectId.isValid(t.merchantId.toString())) {
+        objectIdCount++;
+      } else {
+        stringCount++;
+      }
+    });
+    
+    // Check specific merchant transactions with both formats
+    const transactionsAsObjectId = await Transaction.find({
+      merchantId: new mongoose.Types.ObjectId(merchantId)
+    });
+    
+    const transactionsAsString = await Transaction.find({
+      merchantId: merchantId
+    });
+    
+    res.json({
+      totalTransactionsInDB: await Transaction.countDocuments(),
+      merchantIdTypesInDB: {
+        objectId: objectIdCount,
+        string: stringCount,
+        null: nullCount
+      },
+      transactionsForThisMerchant: {
+        asObjectId: transactionsAsObjectId.length,
+        asString: transactionsAsString.length,
+        total: transactionsAsObjectId.length + transactionsAsString.length
+      },
+      sampleTransactions: allTransactions.slice(0, 3).map(t => ({
+        _id: t._id,
+        merchantId: t.merchantId,
+        merchantIdType: typeof t.merchantId,
+        isObjectId: mongoose.Types.ObjectId.isValid(t.merchantId?.toString() || ''),
+        status: t.status,
+        amount: t.amount
+      }))
+    });
+    
+  } catch (error) {
+    console.error('Database state check error:', error);
     res.status(500).json({ error: error.message });
   }
 };
