@@ -7,7 +7,6 @@ import axios from 'axios';
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateEnpayTransactionId = () => `ENPAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-// ✅ 1. GET MERCHANT CONNECTOR ACCOUNT - FIXED
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
     console.log('🟡 Fetching merchant connector account for:', merchantId);
@@ -20,22 +19,29 @@ export const getMerchantConnectorAccount = async (merchantId) => {
       merchantObjectId = merchantId;
     }
     
+    // ✅ FIX 1: Check BOTH possible field names
     const connectorAccount = await mongoose.connection.db.collection('merchantconnectoraccounts')
       .findOne({ 
-        userId: merchantObjectId,
-        status: "Active"
+        $or: [
+          { userId: merchantObjectId, status: "Active" },
+          { merchantId: merchantObjectId, status: "Active" }  // Also check merchantId field
+        ]
       });
 
     if (connectorAccount) {
       console.log('✅ Merchant Connector Account Found:', {
         id: connectorAccount._id,
         name: connectorAccount.name,
+        userId: connectorAccount.userId,
+        merchantId: connectorAccount.merchantId,
         terminalId: connectorAccount.terminalId,
         status: connectorAccount.status
       });
       
-      // Get integration keys
-      const integrationKeys = connectorAccount.integrationKeys || connectorAccount.integratedonKeys;
+      // ✅ FIX 2: Get integration keys from multiple possible sources
+      const integrationKeys = connectorAccount.integrationKeys || 
+                             connectorAccount.integratedonKeys || 
+                             connectorAccount.credentials || {};
       
       return {
         ...connectorAccount,
@@ -689,3 +695,5 @@ export const debugEndpoint = async (req, res) => {
     });
   }
 };
+
+// ✅ FIXED getMerchantConnectorAccount function:
