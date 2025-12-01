@@ -7,11 +7,9 @@ const transactionSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
-  merchantId: {
-    type: String,  // ✅ String म्हणून बदला
-    required: true,
-    index: true
-  },
+ // आपल्या Transaction schema मध्ये:
+merchantId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+// पण database मध्ये काही transactions मध्ये merchantId string format मध्ये आहे
   merchantName: {
     type: String,
     required: true
