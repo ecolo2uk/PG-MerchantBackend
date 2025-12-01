@@ -69,7 +69,7 @@ const getDateRange = (filter, startDate, endDate) => {
   };
 };
 
-// controllers/merchantDashboardController.js - TEMPORARY FIX
+
 export const getMerchantAnalytics = async (req, res) => {
   try {
     const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
@@ -80,9 +80,7 @@ export const getMerchantAnalytics = async (req, res) => {
       return res.status(400).json({ message: 'Merchant ID is required' });
     }
 
-    // ✅ TEMPORARY: Ignore date filter for testing
-    console.log('⚠️ TEMPORARY: Ignoring date filter to show all transactions');
-    
+    // Build match query
     let matchQuery = {
       $or: [
         { merchantId: new mongoose.Types.ObjectId(merchantId) },
@@ -92,11 +90,11 @@ export const getMerchantAnalytics = async (req, res) => {
 
     console.log('🔍 Simple Match Query:', JSON.stringify(matchQuery, null, 2));
 
-    // Check total matches without date filter
-    const totalMatches = await Transaction.countDocuments(matchQuery);
-    console.log(`📊 Total transactions found for merchant ${merchantId}: ${totalMatches}`);
+    // Get ALL transactions first to debug
+    const allTransactions = await Transaction.find(matchQuery);
+    console.log(`📊 Found ${allTransactions.length} transactions for merchant ${merchantId}`);
 
-    if (totalMatches === 0) {
+    if (allTransactions.length === 0) {
       return res.status(200).json({
         totalSuccessAmount: 0,
         totalFailedAmount: 0,
@@ -112,170 +110,77 @@ export const getMerchantAnalytics = async (req, res) => {
       });
     }
 
-    // Get all transactions for this merchant to debug
-    const allTransactions = await Transaction.find(matchQuery).limit(10);
-    console.log('📊 Sample transactions:', allTransactions.map(t => ({
+    // Show sample transactions for debugging
+    console.log('📊 Sample transactions:', allTransactions.slice(0, 3).map(t => ({
       id: t._id,
       status: t.status,
       amount: t.amount,
       createdAt: t.createdAt,
-      createdDate: t.createdAt?.toISOString().split('T')[0]
+      transactionId: t.transactionId
     })));
 
-    // Simple aggregation without complex date filtering
-    const analytics = await Transaction.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: null,
-          totalSuccessAmount: {
-            $sum: {
-              $cond: {
-                if: { 
-                  $or: [
-                    { $eq: ["$status", "SUCCESS"] },
-                    { $eq: ["$status", "Success"] },
-                    { $regexMatch: { input: "$status", regex: /SUCCESS/i } }
-                  ]
-                },
-                then: "$amount",
-                else: 0
-              }
-            }
-          },
-          totalFailedAmount: {
-            $sum: {
-              $cond: {
-                if: { 
-                  $or: [
-                    { $eq: ["$status", "FAILED"] },
-                    { $eq: ["$status", "Failed"] },
-                    { $regexMatch: { input: "$status", regex: /FAIL/i } }
-                  ]
-                },
-                then: "$amount",
-                else: 0
-              }
-            }
-          },
-          totalPendingAmount: {
-            $sum: {
-              $cond: {
-                if: { 
-                  $or: [
-                    { $eq: ["$status", "PENDING"] },
-                    { $eq: ["$status", "INITIATED"] },
-                    { $regexMatch: { input: "$status", regex: /PENDING|INITIATED/i } }
-                  ]
-                },
-                then: "$amount",
-                else: 0
-              }
-            }
-          },
-          totalRefundAmount: {
-            $sum: {
-              $cond: {
-                if: { 
-                  $or: [
-                    { $eq: ["$status", "REFUND"] },
-                    { $regexMatch: { input: "$status", regex: /REFUND/i } }
-                  ]
-                },
-                then: "$amount",
-                else: 0
-              }
-            }
-          },
-          totalSuccessOrders: {
-            $sum: {
-              $cond: {
-                if: { 
-                  $or: [
-                    { $eq: ["$status", "SUCCESS"] },
-                    { $eq: ["$status", "Success"] },
-                    { $regexMatch: { input: "$status", regex: /SUCCESS/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          totalFailedOrders: {
-            $sum: {
-              $cond: {
-                if: { 
-                  $or: [
-                    { $eq: ["$status", "FAILED"] },
-                    { $eq: ["$status", "Failed"] },
-                    { $regexMatch: { input: "$status", regex: /FAIL/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          totalPendingOrders: {
-            $sum: {
-              $cond: {
-                if: { 
-                  $or: [
-                    { $eq: ["$status", "PENDING"] },
-                    { $eq: ["$status", "INITIATED"] },
-                    { $regexMatch: { input: "$status", regex: /PENDING|INITIATED/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          totalRefundOrders: {
-            $sum: {
-              $cond: {
-                if: { 
-                  $or: [
-                    { $eq: ["$status", "REFUND"] },
-                    { $regexMatch: { input: "$status", regex: /REFUND/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          totalTransactions: { $sum: 1 }
+    // MANUAL CALCULATION - सोपा approach
+    let totalSuccessAmount = 0;
+    let totalFailedAmount = 0;
+    let totalPendingAmount = 0;
+    let totalRefundAmount = 0;
+    
+    let totalSuccessOrders = 0;
+    let totalFailedOrders = 0;
+    let totalPendingOrders = 0;
+    let totalRefundOrders = 0;
+
+    allTransactions.forEach(txn => {
+      const status = (txn.status || 'INITIATED').toUpperCase();
+      const amount = txn.amount || 0;
+
+      if (status.includes('SUCCESS')) {
+        totalSuccessAmount += amount;
+        totalSuccessOrders += 1;
+      } else if (status.includes('FAIL')) {
+        totalFailedAmount += amount;
+        totalFailedOrders += 1;
+      } else if (status.includes('PENDING') || status.includes('INITIATED')) {
+        totalPendingAmount += amount;
+        totalPendingOrders += 1;
+      } else if (status.includes('REFUND')) {
+        totalRefundAmount += amount;
+        totalRefundOrders += 1;
+      } else {
+        // Default to pending
+        totalPendingAmount += amount;
+        totalPendingOrders += 1;
+      }
+    });
+
+    const result = {
+      totalSuccessAmount,
+      totalFailedAmount,
+      totalPendingAmount,
+      totalRefundAmount,
+      totalSuccessOrders,
+      totalFailedOrders,
+      totalPendingOrders,
+      totalRefundOrders,
+      totalTransactions: allTransactions.length,
+      message: `Found ${allTransactions.length} transactions`,
+      isDataFound: true,
+      debug: {
+        merchantId: merchantId,
+        actualCount: allTransactions.length,
+        statusBreakdown: {
+          success: totalSuccessOrders,
+          failed: totalFailedOrders,
+          pending: totalPendingOrders,
+          refund: totalRefundOrders
+        },
+        amounts: {
+          success: totalSuccessAmount,
+          failed: totalFailedAmount,
+          pending: totalPendingAmount,
+          refund: totalRefundAmount
         }
       }
-    ]);
-
-    const result = analytics.length > 0 ? analytics[0] : {
-      totalSuccessAmount: 0,
-      totalFailedAmount: 0,
-      totalPendingAmount: 0,
-      totalRefundAmount: 0,
-      totalSuccessOrders: 0,
-      totalFailedOrders: 0,
-      totalPendingOrders: 0,
-      totalRefundOrders: 0,
-      totalTransactions: 0
-    };
-
-    delete result._id;
-    
-    // Add debug info
-    result.debugInfo = {
-      merchantId: merchantId,
-      timeFilter: timeFilter,
-      totalMatches: totalMatches,
-      actualData: true,
-      sampleData: allTransactions.slice(0, 3).map(t => ({
-        status: t.status,
-        amount: t.amount,
-        date: t.createdAt
-      }))
     };
 
     console.log('✅ Merchant Analytics Result:', result);
