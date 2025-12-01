@@ -1,4 +1,4 @@
-// controllers/transactionController.js - COMPLETE UPDATED
+// controllers/transactionController.js - FIXED VERSION
 import Transaction from '../models/Transaction.js';
 import mongoose from 'mongoose';
 import axios from 'axios';
@@ -7,12 +7,18 @@ import axios from 'axios';
 const generateTransactionId = () => `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateEnpayTransactionId = () => `ENPAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-// ✅ 1. GET MERCHANT CONNECTOR ACCOUNT
+// ✅ 1. GET MERCHANT CONNECTOR ACCOUNT - FIXED
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
     console.log('🟡 Fetching merchant connector account for:', merchantId);
     
-    const merchantObjectId = new mongoose.Types.ObjectId(merchantId);
+    let merchantObjectId;
+    try {
+      merchantObjectId = new mongoose.Types.ObjectId(merchantId);
+    } catch (error) {
+      console.log('⚠️ Invalid merchantId, trying string:', merchantId);
+      merchantObjectId = merchantId;
+    }
     
     const connectorAccount = await mongoose.connection.db.collection('merchantconnectoraccounts')
       .findOne({ 
@@ -24,7 +30,8 @@ export const getMerchantConnectorAccount = async (merchantId) => {
       console.log('✅ Merchant Connector Account Found:', {
         id: connectorAccount._id,
         name: connectorAccount.name,
-        terminalId: connectorAccount.terminalId
+        terminalId: connectorAccount.terminalId,
+        status: connectorAccount.status
       });
       
       // Get integration keys
@@ -36,7 +43,7 @@ export const getMerchantConnectorAccount = async (merchantId) => {
       };
     }
     
-    console.log('❌ No active connector account found');
+    console.log('❌ No active connector account found for merchant:', merchantId);
     return null;
     
   } catch (error) {
@@ -45,20 +52,22 @@ export const getMerchantConnectorAccount = async (merchantId) => {
   }
 };
 
-// ✅ 2. ENPAY QR GENERATION (FIXED)
+// ✅ 2. ENPAY QR GENERATION - FIXED (CRITICAL)
 const generateEnpayQR = async (transactionData, integrationKeys) => {
   try {
     console.log('🔍 ENPAY QR GENERATION STARTED');
     console.log('Transaction Data:', transactionData);
-    console.log('Integration Keys:', Object.keys(integrationKeys));
 
     // Validate credentials
     const requiredKeys = ['X-Merchant-Key', 'X-Merchant-Secret', 'merchantHashId'];
     const missingKeys = requiredKeys.filter(key => !integrationKeys[key]);
     
     if (missingKeys.length > 0) {
+      console.error('❌ MISSING ENPAY CREDENTIALS:', missingKeys);
       throw new Error(`Missing Enpay credentials: ${missingKeys.join(', ')}`);
     }
+
+    console.log('✅ Enpay credentials validated');
 
     // ✅ CRITICAL: Create EXACT payload as Enpay expects
     const payload = {
@@ -70,6 +79,7 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
     // Add amount only if provided (for dynamic QR)
     if (transactionData.amount && transactionData.amount > 0) {
       payload.txnAmount = parseFloat(transactionData.amount).toFixed(2);
+      console.log('💰 Amount added to payload:', payload.txnAmount);
     }
 
     console.log('🟡 Enpay API Payload:', payload);
@@ -90,16 +100,15 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
       timeout: 30000
     });
 
-    console.log('✅ Enpay API Response:', {
-      code: response.data.code,
-      message: response.data.message,
-      hasQR: !!response.data.details
-    });
+    console.log('✅ Enpay API Response Code:', response.data.code);
+    console.log('✅ Enpay API Message:', response.data.message);
 
     // Check Enpay response
     if (response.data.code === 0) {
       // ✅ Transaction successfully created in Enpay
       const qrCodeData = response.data.details;
+      
+      console.log('✅ Enpay QR generated successfully');
       
       return {
         success: true,
@@ -112,24 +121,28 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
         message: 'QR generated via Enpay'
       };
     } else {
-      throw new Error(`Enpay error: ${response.data.message}`);
+      console.error('❌ Enpay returned error code:', response.data.code);
+      throw new Error(`Enpay error: ${response.data.message || 'Unknown error'}`);
     }
     
   } catch (error) {
-    console.error('❌ Enpay API Error:', {
+    console.error('❌ ENPAY API ERROR DETAILS:', {
       message: error.message,
       status: error.response?.status,
       data: error.response?.data,
-      url: error.config?.url
+      url: error.config?.url,
+      headers: error.config?.headers
     });
     
     throw new Error(`Enpay QR generation failed: ${error.response?.data?.message || error.message}`);
   }
 };
 
-// ✅ 3. MAIN DYNAMIC QR FUNCTION (COMPLETELY FIXED)
+// ✅ 3. MAIN DYNAMIC QR FUNCTION - COMPLETELY FIXED
 export const generateDynamicQR = async (req, res) => {
-  let transaction;
+  console.log('🚀 ========== GENERATE DYNAMIC QR STARTED ==========');
+  
+  let savedTransaction = null;
   
   try {
     const { amount, txnNote = 'Payment for Order' } = req.body;
@@ -144,10 +157,11 @@ export const generateDynamicQR = async (req, res) => {
     });
 
     // ✅ Step 1: Get Merchant Connector
+    console.log('🟡 Step 1: Getting merchant connector...');
     const merchantConnectorAccount = await getMerchantConnectorAccount(merchantId);
     
     if (!merchantConnectorAccount) {
-      console.log('❌ No connector account found');
+      console.log('❌ No connector account found for merchant');
       return res.status(400).json({
         success: false,
         message: 'No payment connector configured. Please set up a connector first.',
@@ -155,25 +169,21 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    // Check if it's Enpay connector
-    const connectorName = merchantConnectorAccount.name?.toLowerCase();
-    if (connectorName !== 'enpay') {
-      console.log('❌ Not an Enpay connector:', connectorName);
-      return res.status(400).json({
-        success: false,
-        message: 'Please use Enpay connector for QR generation'
-      });
-    }
+    console.log('✅ Merchant connector found:', merchantConnectorAccount.name);
 
     // ✅ Step 2: Generate Transaction IDs
+    console.log('🟡 Step 2: Generating transaction IDs...');
     const transactionId = generateEnpayTransactionId();
-    const txnRefId = `ENPAYREF${Date.now()}`;
+    const txnRefId = transactionId; // Use same as transactionId for Enpay
     const merchantOrderId = `ORDER${Date.now()}`;
 
-    // ✅ Step 3: Create Transaction Object (WITH PROPER FIELD NAMES)
+    console.log('📝 Generated IDs:', { transactionId, txnRefId, merchantOrderId });
+
+    // ✅ Step 3: Create Transaction Object
+    console.log('🟡 Step 3: Creating transaction object...');
     const transactionData = {
       transactionId,
-      merchantId: new mongoose.Types.ObjectId(merchantId),
+      merchantId: merchantId,
       merchantName,
       amount: amount ? parseFloat(amount) : null,
       status: 'INITIATED',
@@ -209,16 +219,21 @@ export const generateDynamicQR = async (req, res) => {
       vendorRefId: `VENDOR${Date.now()}`
     };
 
-    console.log('🟡 Creating transaction in database...');
-    
+    console.log('📊 Transaction data prepared:', transactionData);
+
     // ✅ Step 4: Save to Database FIRST
-    transaction = new Transaction(transactionData);
-    const savedTransaction = await transaction.save();
+    console.log('🟡 Step 4: Saving to database...');
+    const transaction = new Transaction(transactionData);
+    savedTransaction = await transaction.save();
     
-    console.log('✅ Transaction saved in database:', savedTransaction.transactionId);
+    console.log('✅ Transaction saved in database:', {
+      id: savedTransaction._id,
+      transactionId: savedTransaction.transactionId,
+      amount: savedTransaction.amount
+    });
 
     // ✅ Step 5: Generate QR via Enpay
-    console.log('🟡 Calling Enpay API to generate QR...');
+    console.log('🟡 Step 5: Calling Enpay API...');
     
     const qrResult = await generateEnpayQR({
       amount: amount ? parseFloat(amount) : null,
@@ -228,60 +243,77 @@ export const generateDynamicQR = async (req, res) => {
       merchantHashId: merchantConnectorAccount.integrationKeys?.merchantHashId
     }, merchantConnectorAccount.integrationKeys);
 
-    console.log('🟡 QR Generation Result:', {
+    console.log('✅ QR Generation Result:', {
       success: qrResult.success,
       enpayTransactionCreated: qrResult.enpayTransactionCreated,
-      connector: qrResult.connector
+      connector: qrResult.connector,
+      hasQR: !!qrResult.qrData
     });
 
     // ✅ Step 6: Update Transaction with QR Data
-    savedTransaction.qrCode = qrResult.qrData;
-    savedTransaction.paymentUrl = qrResult.paymentUrl;
-    savedTransaction.enpayTxnId = qrResult.enpayTxnId;
-    savedTransaction.enpayResponse = qrResult.enpayResponse;
-    savedTransaction.enpayTransactionStatus = 'CREATED';
-    savedTransaction.enpayInitiationStatus = 'ENPAY_CREATED';
+    console.log('🟡 Step 6: Updating transaction with QR data...');
     
-    if (qrResult.enpayTransactionCreated) {
-      savedTransaction.status = 'INITIATED';
-      savedTransaction.gatewayTransactionId = qrResult.enpayTxnId;
-    }
-    
-    await savedTransaction.save();
+    const updateData = {
+      qrCode: qrResult.qrData,
+      paymentUrl: qrResult.paymentUrl,
+      enpayTxnId: qrResult.enpayTxnId,
+      enpayResponse: qrResult.enpayResponse,
+      enpayTransactionStatus: 'CREATED',
+      enpayInitiationStatus: 'ENPAY_CREATED',
+      updatedAt: new Date()
+    };
 
-    console.log('✅ Transaction updated with QR data:', savedTransaction.transactionId);
+    if (qrResult.enpayTransactionCreated) {
+      updateData.status = 'INITIATED';
+      updateData.gatewayTransactionId = qrResult.enpayTxnId;
+    }
+
+    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData);
+    
+    // Fetch updated transaction
+    const updatedTransaction = await Transaction.findById(savedTransaction._id);
+    
+    console.log('✅ Transaction updated successfully:', updatedTransaction.transactionId);
 
     // ✅ Step 7: Return Response
-    res.status(200).json({
+    console.log('🟡 Step 7: Returning response...');
+    
+    const responseData = {
       success: true,
-      transactionId: savedTransaction.transactionId,
-      enpayTxnId: savedTransaction.enpayTxnId,
-      qrCode: savedTransaction.qrCode,
-      paymentUrl: savedTransaction.paymentUrl,
-      amount: savedTransaction.amount,
-      status: savedTransaction.status,
+      transactionId: updatedTransaction.transactionId,
+      enpayTxnId: updatedTransaction.enpayTxnId,
+      qrCode: updatedTransaction.qrCode,
+      paymentUrl: updatedTransaction.paymentUrl,
+      amount: updatedTransaction.amount,
+      status: updatedTransaction.status,
       connector: 'enpay',
       enpayStatus: 'CREATED',
-      merchantHashId: savedTransaction.merchantHashId,
-      upiId: savedTransaction.upiId,
+      merchantHashId: updatedTransaction.merchantHashId,
+      upiId: updatedTransaction.upiId,
       message: 'QR generated successfully via Enpay',
       transaction: {
-        _id: savedTransaction._id,
-        createdAt: savedTransaction.createdAt,
-        updatedAt: savedTransaction.updatedAt
+        _id: updatedTransaction._id,
+        createdAt: updatedTransaction.createdAt,
+        updatedAt: updatedTransaction.updatedAt
       }
-    });
+    };
+
+    console.log('✅ Response prepared:', responseData);
+    console.log('🚀 ========== GENERATE DYNAMIC QR COMPLETED ==========');
+    
+    res.status(200).json(responseData);
 
   } catch (error) {
-    console.error('❌ Generate QR Error:', error);
+    console.error('❌ GENERATE QR ERROR:', error);
     
     // Update transaction status if it exists
-    if (transaction && transaction._id) {
+    if (savedTransaction && savedTransaction._id) {
       try {
-        await Transaction.findByIdAndUpdate(transaction._id, {
+        await Transaction.findByIdAndUpdate(savedTransaction._id, {
           status: 'FAILED',
           enpayInitiationStatus: 'ATTEMPTED_FAILED',
-          enpayError: error.message
+          enpayError: error.message,
+          updatedAt: new Date()
         });
         console.log('✅ Updated transaction as FAILED');
       } catch (updateError) {
@@ -299,7 +331,7 @@ export const generateDynamicQR = async (req, res) => {
   }
 };
 
-// ✅ 4. GET MERCHANT CONNECTOR (FIXED)
+// ✅ 4. GET MERCHANT CONNECTOR - FIXED
 export const getMerchantConnector = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -313,6 +345,7 @@ export const getMerchantConnector = async (req, res) => {
       res.json({
         success: true,
         connectorAccount: {
+          _id: connectorAccount._id,
           connectorId: connectorAccount.connectorId,
           connectorName: connectorAccount.name,
           connectorType: 'UPI',
@@ -320,7 +353,10 @@ export const getMerchantConnector = async (req, res) => {
           status: connectorAccount.status,
           hasIntegrationKeys: Object.keys(integrationKeys).length > 0,
           availableKeys: Object.keys(integrationKeys),
-          merchantHashId: integrationKeys.merchantHashId
+          merchantHashId: integrationKeys.merchantHashId,
+          // Include actual credentials (masked) for debugging
+          X_Merchant_Key: integrationKeys['X-Merchant-Key'] ? '***' + integrationKeys['X-Merchant-Key'].slice(-4) : null,
+          merchantHashId_full: integrationKeys.merchantHashId
         },
         message: 'Enpay connector found'
       });
@@ -342,18 +378,25 @@ export const getMerchantConnector = async (req, res) => {
   }
 };
 
-// ✅ 5. GET TRANSACTIONS (FIXED)
+// ✅ 5. GET TRANSACTIONS - FIXED
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
     console.log("🟡 Fetching transactions for merchant:", merchantId);
 
-    const transactions = await Transaction.find({ 
-      merchantId: new mongoose.Types.ObjectId(merchantId) 
-    })
-    .sort({ createdAt: -1 })
-    .limit(50)
-    .lean();
+    // Handle both string and ObjectId merchantId
+    let query = { merchantId: merchantId };
+    
+    try {
+      query.merchantId = new mongoose.Types.ObjectId(merchantId);
+    } catch (error) {
+      console.log('⚠️ Using string merchantId for query');
+    }
+
+    const transactions = await Transaction.find(query)
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
 
     console.log(`✅ Found ${transactions.length} transactions`);
 
@@ -378,7 +421,9 @@ export const getTransactions = async (req, res) => {
       paymentUrl: txn.paymentUrl,
       connectorUsed: txn.connectorUsed,
       enpayTxnId: txn.enpayTxnId,
-      merchantHashId: txn.merchantHashId
+      merchantHashId: txn.merchantHashId,
+      enpayInitiationStatus: txn.enpayInitiationStatus,
+      isEnpayTransaction: txn.isEnpayTransaction
     }));
 
     res.json(formattedTransactions);
@@ -393,8 +438,10 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// ✅ 6. DEFAULT QR (FIXED)
+// ✅ 6. DEFAULT QR - FIXED
 export const generateDefaultQR = async (req, res) => {
+  console.log('🔵 ========== GENERATE DEFAULT QR STARTED ==========');
+  
   try {
     const merchantId = req.user.id;
     const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
@@ -411,13 +458,15 @@ export const generateDefaultQR = async (req, res) => {
       });
     }
 
+    console.log('✅ Merchant connector found for default QR');
+
     const transactionId = `DFT${Date.now()}`;
-    const txnRefId = `DFTREF${Date.now()}`;
+    const txnRefId = transactionId;
 
     // Create transaction
     const transactionData = {
       transactionId,
-      merchantId: new mongoose.Types.ObjectId(merchantId),
+      merchantId: merchantId,
       merchantName,
       amount: null,
       status: 'INITIATED',
@@ -463,22 +512,28 @@ export const generateDefaultQR = async (req, res) => {
     }, merchantConnectorAccount.integrationKeys);
 
     // Update transaction
-    savedTransaction.qrCode = qrResult.qrData;
-    savedTransaction.paymentUrl = qrResult.paymentUrl;
-    savedTransaction.enpayTxnId = qrResult.enpayTxnId;
-    savedTransaction.enpayResponse = qrResult.enpayResponse;
-    savedTransaction.enpayTransactionStatus = 'CREATED';
-    savedTransaction.enpayInitiationStatus = 'ENPAY_CREATED';
-    await savedTransaction.save();
+    const updateData = {
+      qrCode: qrResult.qrData,
+      paymentUrl: qrResult.paymentUrl,
+      enpayTxnId: qrResult.enpayTxnId,
+      enpayResponse: qrResult.enpayResponse,
+      enpayTransactionStatus: 'CREATED',
+      enpayInitiationStatus: 'ENPAY_CREATED',
+      updatedAt: new Date()
+    };
+
+    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData);
+    
+    const updatedTransaction = await Transaction.findById(savedTransaction._id);
 
     console.log('✅ Default QR generated successfully');
 
     res.status(200).json({
       success: true,
-      transactionId: savedTransaction.transactionId,
-      qrCode: savedTransaction.qrCode,
-      paymentUrl: savedTransaction.paymentUrl,
-      status: savedTransaction.status,
+      transactionId: updatedTransaction.transactionId,
+      qrCode: updatedTransaction.qrCode,
+      paymentUrl: updatedTransaction.paymentUrl,
+      status: updatedTransaction.status,
       isDefault: true,
       connector: 'enpay',
       message: 'Default QR generated successfully'
@@ -494,7 +549,7 @@ export const generateDefaultQR = async (req, res) => {
   }
 };
 
-// ✅ 7. CREATE DEFAULT CONNECTOR (FIXED)
+// ✅ 7. CREATE DEFAULT CONNECTOR - FIXED
 export const createDefaultConnectorAccount = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -522,7 +577,7 @@ export const createDefaultConnectorAccount = async (req, res) => {
       });
     }
 
-    // Create connector account
+    // Create connector account with REAL credentials
     const connectorAccountData = {
       userId: new mongoose.Types.ObjectId(merchantId),
       connectorId: connector._id,
@@ -531,9 +586,9 @@ export const createDefaultConnectorAccount = async (req, res) => {
       status: 'Active',
       terminalId: `TERM${Date.now()}`,
       integrationKeys: {
-        'X-Merchant-Key': 'YOUR_MERCHANT_KEY',
-        'X-Merchant-Secret': 'YOUR_MERCHANT_SECRET',
-        'merchantHashId': 'YOUR_MERCHANT_HASH_ID',
+        'X-Merchant-Key': '0851439b-03df-4983-88d6-32399b1e4514', // Your actual key
+        'X-Merchant-Secret': 'bae97f533a594af9bf3dded47f09c34e15e053d1', // Your actual secret
+        'merchantHashId': 'MERCDSH51Y7CD4YJLFIZR8NF', // Your actual hash ID
         'baseUrl': 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway'
       },
       limits: {
@@ -565,6 +620,43 @@ export const createDefaultConnectorAccount = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to create connector',
+      error: error.message
+    });
+  }
+};
+
+// ✅ 8. DEBUG ENDPOINT
+export const debugEndpoint = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    
+    const merchantConnector = await getMerchantConnectorAccount(merchantId);
+    const transactionCount = await Transaction.countDocuments({ merchantId: merchantId });
+    const latestTransaction = await Transaction.findOne({ merchantId: merchantId }).sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      merchantId,
+      merchantConnector: merchantConnector ? {
+        name: merchantConnector.name,
+        hasIntegrationKeys: !!merchantConnector.integrationKeys,
+        integrationKeys: merchantConnector.integrationKeys ? Object.keys(merchantConnector.integrationKeys) : []
+      } : null,
+      transactionCount,
+      latestTransaction: latestTransaction ? {
+        transactionId: latestTransaction.transactionId,
+        status: latestTransaction.status,
+        amount: latestTransaction.amount,
+        enpayInitiationStatus: latestTransaction.enpayInitiationStatus
+      } : null,
+      message: 'Debug information'
+    });
+    
+  } catch (error) {
+    console.error('❌ Debug Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Debug failed',
       error: error.message
     });
   }
