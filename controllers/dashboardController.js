@@ -108,19 +108,42 @@ export const getMerchantAnalytics = async (req, res) => {
               else: { $ifNull: ["$Amount", 0] }
             }
           },
-          unifiedStatus: {
-            $cond: {
-              if: { $ne: ["$status", undefined] },
-              then: { $toUpper: { $trim: { input: "$status" } } },
-              else: { 
-                $cond: {
-                  if: { $ne: ["$Transaction Status", undefined] },
-                  then: { $toUpper: { $trim: { input: "$Transaction Status" } } },
-                  else: "UNKNOWN"
-                }
-              }
-            }
+         // In controllers/merchantDashboardController.js
+// Update the unifiedStatus logic:
+
+unifiedStatus: {
+  $cond: {
+    if: { $ne: ["$status", undefined] },
+    then: { 
+      $switch: {
+        branches: [
+          { case: { $eq: [{ $toUpper: { $trim: { input: "$status" } } }, "INITIATED"] }, then: "PENDING" },
+          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /INITIATED/i } }, then: "PENDING" },
+          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /SUCCESS/i } }, then: "SUCCESS" },
+          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /FAIL/i } }, then: "FAILED" },
+          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /PENDING/i } }, then: "PENDING" },
+          { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$status" } } }, regex: /REFUND/i } }, then: "REFUND" }
+        ],
+        default: { $toUpper: { $trim: { input: "$status" } } }
+      }
+    },
+    else: { 
+      $cond: {
+        if: { $ne: ["$Transaction Status", undefined] },
+        then: { 
+          $switch: {
+            branches: [
+              { case: { $eq: [{ $toUpper: { $trim: { input: "$Transaction Status" } } }, "INITIATED"] }, then: "PENDING" },
+              { case: { $regexMatch: { input: { $toUpper: { $trim: { input: "$Transaction Status" } } }, regex: /INITIATED/i } }, then: "PENDING" }
+            ],
+            default: { $toUpper: { $trim: { input: "$Transaction Status" } } }
           }
+        },
+        else: "UNKNOWN"
+      }
+    }
+  }
+}
         }
       },
       {
@@ -1195,5 +1218,61 @@ export const getCurrentMerchantTransactions = async (req, res) => {
       error: error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
+  }
+};
+
+// Add to controllers/merchantDashboardController.js
+export const debugAllTransactions = async (req, res) => {
+  try {
+    console.log('🔍 Debugging ALL transactions in database');
+    
+    // Get ALL transactions
+    const allTransactions = await Transaction.find({}).limit(50);
+    
+    // Check what merchant IDs exist
+    const allMerchantIds = [...new Set(allTransactions.map(t => t.merchantId?.toString()))];
+    
+    // Check what field names exist
+    const sampleTransaction = allTransactions[0] || {};
+    const fieldNames = Object.keys(sampleTransaction._doc || {});
+    
+    // Check specific merchant's transactions
+    const specificMerchantId = "692d18afc7e70c765a6f3292";
+    const merchantTransactions = await Transaction.find({ 
+      $or: [
+        { merchantId: specificMerchantId },
+        { merchantId: new mongoose.Types.ObjectId(specificMerchantId) },
+        { merchantId: { $regex: specificMerchantId, $options: 'i' } }
+      ]
+    });
+    
+    res.json({
+      totalTransactions: await Transaction.countDocuments(),
+      merchantIdsInDB: allMerchantIds,
+      fieldNamesInTransactions: fieldNames,
+      merchantTransactionsCount: merchantTransactions.length,
+      sampleTransaction: allTransactions.slice(0, 3).map(t => ({
+        _id: t._id,
+        merchantId: t.merchantId,
+        status: t.status,
+        amount: t.amount,
+        Amount: t.Amount,
+        'Transaction Status': t['Transaction Status'],
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt
+      })),
+      merchant692Transactions: merchantTransactions.map(t => ({
+        _id: t._id,
+        merchantId: t.merchantId,
+        status: t.status,
+        amount: t.amount,
+        Amount: t.Amount,
+        createdAt: t.createdAt
+      }))
+    });
+    
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ error: error.message });
   }
 };
