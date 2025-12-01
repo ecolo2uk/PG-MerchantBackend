@@ -140,14 +140,42 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
 
 // ✅ 3. MAIN DYNAMIC QR FUNCTION - COMPLETELY FIXED
 export const generateDynamicQR = async (req, res) => {
-  console.log('🚀 ========== GENERATE DYNAMIC QR STARTED ==========');
+   console.log('🚀 ========== GENERATE DYNAMIC QR STARTED ==========');
+  console.log('🔍 Request Body:', req.body);
+  console.log('🔍 Request Headers:', req.headers['content-type']);
   
   let savedTransaction = null;
   
   try {
+    // ✅ FIX 1: Check if body exists
+    if (!req.body) {
+      console.error('❌ ERROR: req.body is undefined');
+      return res.status(400).json({
+        success: false,
+        message: 'Request body is required',
+        error: 'req.body is undefined'
+      });
+    }
+    
     const { amount, txnNote = 'Payment for Order' } = req.body;
-    const merchantId = req.user.id;
-    const merchantName = req.user.firstname + ' ' + (req.user.lastname || '');
+    
+    // ✅ FIX 2: Log the actual values
+    console.log('🟡 Parsed values:', {
+      amount: amount,
+      txnNote: txnNote,
+      bodyType: typeof req.body,
+      bodyKeys: Object.keys(req.body)
+    });
+    
+    const merchantId = req.user?.id || req.user?._id;
+    const merchantName = req.user?.firstname + ' ' + (req.user?.lastname || '');
+    
+    if (!merchantId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Merchant ID not found'
+      });
+    }
 
     console.log('🟡 Generate Dynamic QR Request:', {
       merchantId,
