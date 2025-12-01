@@ -1,3 +1,9 @@
+
+
+
+
+
+
 // controllers/merchantDashboardController.js
 import Transaction from '../models/Transaction.js';
 import User from '../models/User.js';
@@ -63,8 +69,7 @@ const getDateRange = (filter, startDate, endDate) => {
   };
 };
 
-// Get merchant analytics
-// controllers/merchantDashboardController.js में getMerchantAnalytics function update करें
+// ✅ Get merchant analytics - ONLY REAL DATA
 export const getMerchantAnalytics = async (req, res) => {
   try {
     const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
@@ -75,13 +80,14 @@ export const getMerchantAnalytics = async (req, res) => {
       return res.status(400).json({ message: 'Merchant ID is required' });
     }
 
-    let matchQuery = {
-      // ✅ FIX: Correct merchant ID matching
-      $or: [
-        { merchantId: merchantId },
-        { merchantId: new mongoose.Types.ObjectId(merchantId) }
-      ]
-    };
+    let matchQuery = {};
+
+    // ✅ Correct merchant ID matching
+    if (mongoose.Types.ObjectId.isValid(merchantId)) {
+      matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
+    } else {
+      matchQuery.merchantId = merchantId;
+    }
 
     const dateRange = getDateRange(timeFilter, startDate, endDate);
     if (Object.keys(dateRange).length > 0) {
@@ -90,49 +96,166 @@ export const getMerchantAnalytics = async (req, res) => {
 
     console.log('🔍 Merchant Analytics Match Query:', JSON.stringify(matchQuery, null, 2));
 
+    // Enhanced aggregation for unified schema
     const analytics = await Transaction.aggregate([
       { $match: matchQuery },
+      {
+        $addFields: {
+          unifiedAmount: {
+            $cond: {
+              if: { $ne: ["$amount", undefined] },
+              then: "$amount",
+              else: { $ifNull: ["$Amount", 0] }
+            }
+          },
+          unifiedStatus: {
+            $cond: {
+              if: { $ne: ["$status", undefined] },
+              then: { $toUpper: { $trim: { input: "$status" } } },
+              else: { 
+                $cond: {
+                  if: { $ne: ["$Transaction Status", undefined] },
+                  then: { $toUpper: { $trim: { input: "$Transaction Status" } } },
+                  else: "UNKNOWN"
+                }
+              }
+            }
+          }
+        }
+      },
       {
         $group: {
           _id: null,
           totalSuccessAmount: {
-            $sum: { 
-              $cond: [{ $eq: ["$status", "SUCCESS"] }, { $ifNull: ["$amount", 0] }, 0] 
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "SUCCESS"] },
+                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
+                    { $eq: ["$unifiedStatus", "COMPLETED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
             }
           },
           totalFailedAmount: {
-            $sum: { 
-              $cond: [{ $eq: ["$status", "FAILED"] }, { $ifNull: ["$amount", 0] }, 0] 
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "FAILED"] },
+                    { $eq: ["$unifiedStatus", "FAILURE"] },
+                    { $eq: ["$unifiedStatus", "FALLED"] },
+                    { $eq: ["$unifiedStatus", "REJECTED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
             }
           },
           totalPendingAmount: {
-            $sum: { 
-              $cond: [{ $in: ["$status", ["PENDING", "INITIATED", "CREATED"]] }, { $ifNull: ["$amount", 0] }, 0] 
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "PENDING"] },
+                    { $eq: ["$unifiedStatus", "INITIATED"] },
+                    { $eq: ["$unifiedStatus", "GENERATED"] },
+                    { $eq: ["$unifiedStatus", "PROCESSING"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
             }
           },
           totalRefundAmount: {
-            $sum: { 
-              $cond: [{ $eq: ["$status", "REFUNDED"] }, { $ifNull: ["$amount", 0] }, 0] 
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "REFUND"] },
+                    { $eq: ["$unifiedStatus", "REFUNDED"] },
+                    { $eq: ["$unifiedStatus", "CANCELLED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
             }
           },
           totalSuccessOrders: {
-            $sum: { 
-              $cond: [{ $eq: ["$status", "SUCCESS"] }, 1, 0] 
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "SUCCESS"] },
+                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
+                    { $eq: ["$unifiedStatus", "COMPLETED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
             }
           },
           totalFailedOrders: {
-            $sum: { 
-              $cond: [{ $eq: ["$status", "FAILED"] }, 1, 0] 
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "FAILED"] },
+                    { $eq: ["$unifiedStatus", "FAILURE"] },
+                    { $eq: ["$unifiedStatus", "FALLED"] },
+                    { $eq: ["$unifiedStatus", "REJECTED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
             }
           },
           totalPendingOrders: {
-            $sum: { 
-              $cond: [{ $in: ["$status", ["PENDING", "INITIATED", "CREATED"]] }, 1, 0] 
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "PENDING"] },
+                    { $eq: ["$unifiedStatus", "INITIATED"] },
+                    { $eq: ["$unifiedStatus", "GENERATED"] },
+                    { $eq: ["$unifiedStatus", "PROCESSING"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
             }
           },
           totalRefundOrders: {
-            $sum: { 
-              $cond: [{ $eq: ["$status", "REFUNDED"] }, 1, 0] 
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "REFUND"] },
+                    { $eq: ["$unifiedStatus", "REFUNDED"] },
+                    { $eq: ["$unifiedStatus", "CANCELLED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
             }
           },
           totalTransactions: { $sum: 1 }
@@ -140,7 +263,7 @@ export const getMerchantAnalytics = async (req, res) => {
       }
     ]);
 
-    let result = analytics.length > 0 ? analytics[0] : {
+    const result = analytics.length > 0 ? analytics[0] : {
       totalSuccessAmount: 0,
       totalFailedAmount: 0,
       totalPendingAmount: 0,
@@ -154,25 +277,6 @@ export const getMerchantAnalytics = async (req, res) => {
 
     delete result._id;
 
-    // ✅ FIX: If merchant has no transactions, provide sample data
-    if (result.totalTransactions === 0) {
-      console.log('📊 No transactions found, providing demo data');
-      result = {
-        totalSuccessAmount: Math.floor(Math.random() * 100000) + 50000,
-        totalFailedAmount: Math.floor(Math.random() * 10000) + 1000,
-        totalPendingAmount: Math.floor(Math.random() * 20000) + 5000,
-        totalRefundAmount: Math.floor(Math.random() * 5000) + 1000,
-        totalSuccessOrders: Math.floor(Math.random() * 50) + 20,
-        totalFailedOrders: Math.floor(Math.random() * 10) + 2,
-        totalPendingOrders: Math.floor(Math.random() * 15) + 5,
-        totalRefundOrders: Math.floor(Math.random() * 5) + 1,
-        totalTransactions: 0, // Keep 0 to indicate no real transactions
-        isDemoData: true // Flag for frontend
-      };
-      
-      // ✅ या फिर database में automatically dummy transaction create करें
-    }
-
     console.log('✅ Merchant Analytics Result:', result);
     
     res.status(200).json(result);
@@ -180,12 +284,482 @@ export const getMerchantAnalytics = async (req, res) => {
   } catch (error) {
     console.error('❌ Merchant Analytics Error:', error);
     
-  
+    // Return zero data on error
+    const zeroData = {
+      totalSuccessAmount: 0,
+      totalFailedAmount: 0,
+      totalPendingAmount: 0,
+      totalRefundAmount: 0,
+      totalSuccessOrders: 0,
+      totalFailedOrders: 0,
+      totalPendingOrders: 0,
+      totalRefundOrders: 0,
+      totalTransactions: 0,
+      isError: true
+    };
     
-    res.status(200).json(sampleData);
+    res.status(500).json(zeroData);
   }
 };
 
+// Get merchant sales report - ONLY REAL DATA
+export const getMerchantSalesReport = async (req, res) => {
+  try {
+    const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
+
+    console.log('🟡 Merchant Sales Report Request:', { merchantId, timeFilter });
+
+    if (!merchantId) {
+      return res.status(400).json({ message: 'Merchant ID is required' });
+    }
+
+    let matchQuery = {};
+
+    if (mongoose.Types.ObjectId.isValid(merchantId)) {
+      matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
+    } else {
+      matchQuery.merchantId = merchantId;
+    }
+
+    const dateRange = getDateRange(timeFilter, startDate, endDate);
+    if (Object.keys(dateRange).length > 0) {
+      matchQuery.createdAt = dateRange.createdAt;
+    }
+
+    console.log('🔍 Merchant Sales Report Match Query:', JSON.stringify(matchQuery, null, 2));
+
+    // Enhanced aggregation for merchant data
+    const salesReport = await Transaction.aggregate([
+      { $match: matchQuery },
+      {
+        $addFields: {
+          unifiedAmount: {
+            $cond: {
+              if: { $ne: ["$amount", undefined] },
+              then: "$amount",
+              else: { $ifNull: ["$Amount", 0] }
+            }
+          },
+          unifiedStatus: {
+            $cond: {
+              if: { $ne: ["$status", undefined] },
+              then: { $toUpper: { $trim: { input: "$status" } } },
+              else: { 
+                $cond: {
+                  if: { $ne: ["$Transaction Status", undefined] },
+                  then: { $toUpper: { $trim: { input: "$Transaction Status" } } },
+                  else: "UNKNOWN"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            date: {
+              $dateToString: {
+                format: "%Y-%m-%d",
+                date: "$createdAt"
+              }
+            }
+          },
+          successCount: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "SUCCESS"] },
+                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
+                    { $eq: ["$unifiedStatus", "COMPLETED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
+            }
+          },
+          failedCount: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "FAILED"] },
+                    { $eq: ["$unifiedStatus", "FAILURE"] },
+                    { $eq: ["$unifiedStatus", "FALLED"] },
+                    { $eq: ["$unifiedStatus", "REJECTED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
+            }
+          },
+          pendingCount: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "PENDING"] },
+                    { $eq: ["$unifiedStatus", "INITIATED"] },
+                    { $eq: ["$unifiedStatus", "GENERATED"] },
+                    { $eq: ["$unifiedStatus", "PROCESSING"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
+            }
+          },
+          refundCount: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "REFUND"] },
+                    { $eq: ["$unifiedStatus", "REFUNDED"] },
+                    { $eq: ["$unifiedStatus", "CANCELLED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
+            }
+          },
+          totalIncome: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "SUCCESS"] },
+                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
+                    { $eq: ["$unifiedStatus", "COMPLETED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          date: "$_id.date",
+          successCount: 1,
+          failedCount: 1,
+          pendingCount: 1,
+          refundCount: 1,
+          totalIncome: 1
+        }
+      },
+      { $sort: { date: 1 } }
+    ]);
+
+    console.log(`✅ Merchant sales report processed: ${salesReport.length} days`);
+
+    // Fill missing dates with zeros (NO SAMPLE DATA)
+    let filledReport = salesReport;
+    if (salesReport.length === 0) {
+      console.log('📊 No transactions found for this period');
+      filledReport = fillMissingDatesWithZeros(timeFilter, startDate, endDate);
+    }
+    
+    res.status(200).json(filledReport);
+
+  } catch (error) {
+    console.error('❌ Sales Report Error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+};
+
+// ✅ Get ONLY current merchant's analytics - ONLY REAL DATA
+export const getCurrentMerchantAnalytics = async (req, res) => {
+  try {
+    const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
+
+    console.log('🟡 Current Merchant Analytics Request:', { merchantId, timeFilter });
+
+    if (!merchantId || merchantId === 'all' || merchantId === 'null') {
+      return res.status(400).json({ 
+        message: 'Valid merchant ID is required' 
+      });
+    }
+
+    let matchQuery = {};
+
+    if (mongoose.Types.ObjectId.isValid(merchantId)) {
+      matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
+    } else {
+      matchQuery.merchantId = merchantId;
+    }
+
+    const dateRange = getDateRange(timeFilter, startDate, endDate);
+    if (Object.keys(dateRange).length > 0) {
+      matchQuery.createdAt = dateRange.createdAt;
+    }
+
+    console.log('🔍 Current Merchant Analytics Match Query:', JSON.stringify(matchQuery, null, 2));
+
+    const aggregationPipeline = [
+      {
+        $match: matchQuery
+      },
+      {
+        $addFields: {
+          unifiedAmount: {
+            $cond: {
+              if: { $ne: ["$amount", undefined] },
+              then: "$amount",
+              else: { $ifNull: ["$Amount", 0] }
+            }
+          },
+          unifiedStatus: {
+            $cond: {
+              if: { $ne: ["$status", undefined] },
+              then: { $toUpper: { $trim: { input: "$status" } } },
+              else: { 
+                $cond: {
+                  if: { $ne: ["$Transaction Status", undefined] },
+                  then: { $toUpper: { $trim: { input: "$Transaction Status" } } },
+                  else: "UNKNOWN"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalSuccessAmount: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "SUCCESS"] },
+                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
+                    { $eq: ["$unifiedStatus", "COMPLETED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
+            }
+          },
+          totalSuccessOrders: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "SUCCESS"] },
+                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
+                    { $eq: ["$unifiedStatus", "COMPLETED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
+            }
+          },
+          totalFailedAmount: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "FAILED"] },
+                    { $eq: ["$unifiedStatus", "FAILURE"] },
+                    { $eq: ["$unifiedStatus", "FALLED"] },
+                    { $eq: ["$unifiedStatus", "REJECTED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
+            }
+          },
+          totalFailedOrders: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "FAILED"] },
+                    { $eq: ["$unifiedStatus", "FAILURE"] },
+                    { $eq: ["$unifiedStatus", "FALLED"] },
+                    { $eq: ["$unifiedStatus", "REJECTED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
+            }
+          },
+          totalPendingAmount: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "PENDING"] },
+                    { $eq: ["$unifiedStatus", "INITIATED"] },
+                    { $eq: ["$unifiedStatus", "GENERATED"] },
+                    { $eq: ["$unifiedStatus", "PROCESSING"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
+            }
+          },
+          totalPendingOrders: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "PENDING"] },
+                    { $eq: ["$unifiedStatus", "INITIATED"] },
+                    { $eq: ["$unifiedStatus", "GENERATED"] },
+                    { $eq: ["$unifiedStatus", "PROCESSING"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
+            }
+          },
+          totalRefundAmount: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "REFUND"] },
+                    { $eq: ["$unifiedStatus", "REFUNDED"] },
+                    { $eq: ["$unifiedStatus", "CANCELLED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
+                  ]
+                },
+                then: "$unifiedAmount",
+                else: 0
+              }
+            }
+          },
+          totalRefundOrders: {
+            $sum: {
+              $cond: {
+                if: {
+                  $or: [
+                    { $eq: ["$unifiedStatus", "REFUND"] },
+                    { $eq: ["$unifiedStatus", "REFUNDED"] },
+                    { $eq: ["$unifiedStatus", "CANCELLED"] },
+                    { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
+                  ]
+                },
+                then: 1,
+                else: 0
+              }
+            }
+          },
+          totalTransactions: { $sum: 1 }
+        }
+      }
+    ];
+
+    const analyticsResult = await Transaction.aggregate(aggregationPipeline);
+    
+    let analytics = analyticsResult[0] || {
+      totalSuccessAmount: 0,
+      totalFailedAmount: 0,
+      totalPendingAmount: 0,
+      totalRefundAmount: 0,
+      totalSuccessOrders: 0,
+      totalFailedOrders: 0,
+      totalPendingOrders: 0,
+      totalRefundOrders: 0,
+      totalTransactions: 0
+    };
+
+    console.log('✅ Current Merchant Analytics Result:', {
+      merchantId: merchantId,
+      success: analytics.totalSuccessAmount,
+      total: analytics.totalTransactions
+    });
+
+    // NO SAMPLE DATA - return zero values only
+    res.status(200).json(analytics);
+
+  } catch (error) {
+    console.error('❌ Error fetching current merchant analytics:', error);
+    
+    const zeroAnalytics = {
+      totalSuccessAmount: 0,
+      totalFailedAmount: 0,
+      totalPendingAmount: 0,
+      totalRefundAmount: 0,
+      totalSuccessOrders: 0,
+      totalFailedOrders: 0,
+      totalPendingOrders: 0,
+      totalRefundOrders: 0,
+      totalTransactions: 0,
+      isError: true,
+      message: error.message
+    };
+    
+    res.status(500).json(zeroAnalytics);
+  }
+};
+
+// Helper function to fill missing dates with zeros (NO SAMPLE DATA)
+const fillMissingDatesWithZeros = (timeFilter, startDate, endDate) => {
+  const now = new Date();
+  const result = [];
+  let daysToShow = 7;
+  
+  if (timeFilter === 'today' || timeFilter === 'yesterday') {
+    daysToShow = 1;
+  } else if (timeFilter === 'this_week') {
+    daysToShow = 7;
+  } else if (timeFilter === 'this_month' || timeFilter === 'last_month') {
+    daysToShow = 30;
+  } else if (timeFilter === 'custom' && startDate && endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    daysToShow = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+  }
+  
+  for (let i = daysToShow - 1; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(now.getDate() - i);
+    const dateString = date.toISOString().split('T')[0];
+    
+    result.push({
+      date: dateString,
+      successCount: 0,
+      failedCount: 0,
+      pendingCount: 0,
+      refundCount: 0,
+      totalIncome: 0
+    });
+  }
+  
+  return result;
+};
+
+// Keep other functions as they are...
 // Get merchant transactions
 export const getMerchantTransactions = async (req, res) => {
   try {
@@ -255,187 +829,7 @@ export const getMerchantTransactions = async (req, res) => {
   }
 };
 
-// Get merchant sales report
-// controllers/merchantDashboardController.js में
-export const getMerchantSalesReport = async (req, res) => {
-  try {
-    const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
 
-    console.log('🟡 Merchant Sales Report Request:', { merchantId, timeFilter });
-
-    if (!merchantId) {
-      return res.status(400).json({ message: 'Merchant ID is required' });
-    }
-
-    let matchQuery = {
-      merchantId: merchantId
-    };
-
-    // Date range calculation
-    const dateRange = getDateRange(timeFilter, startDate, endDate);
-    if (Object.keys(dateRange).length > 0) {
-      matchQuery.createdAt = dateRange.createdAt;
-    }
-
-    console.log('🔍 Merchant Sales Report Match Query:', JSON.stringify(matchQuery, null, 2));
-
-    // ✅ Enhanced aggregation for merchant data
-    const salesReport = await Transaction.aggregate([
-      { $match: matchQuery },
-      {
-        $addFields: {
-          // Unified fields for both schemas
-          unifiedAmount: {
-            $cond: {
-              if: { $ne: ["$amount", undefined] },
-              then: "$amount",
-              else: { $ifNull: ["$Amount", 0] }
-            }
-          },
-          unifiedStatus: {
-            $cond: {
-              if: { $ne: ["$status", undefined] },
-              then: { $toUpper: { $trim: { input: "$status" } } },
-              else: { 
-                $cond: {
-                  if: { $ne: ["$Transaction Status", undefined] },
-                  then: { $toUpper: { $trim: { input: "$Transaction Status" } } },
-                  else: "UNKNOWN"
-                }
-              }
-            }
-          }
-        }
-      },
-      {
-        $group: {
-          _id: {
-            date: {
-              $dateToString: {
-                format: "%Y-%m-%d",
-                date: "$createdAt"
-              }
-            }
-          },
-          // Count transactions by status
-          successCount: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "SUCCESS"] },
-                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
-                    { $eq: ["$unifiedStatus", "COMPLETED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          failedCount: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "FAILED"] },
-                    { $eq: ["$unifiedStatus", "FAILURE"] },
-                    { $eq: ["$unifiedStatus", "FALLED"] },
-                    { $eq: ["$unifiedStatus", "REJECTED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          pendingCount: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "PENDING"] },
-                    { $eq: ["$unifiedStatus", "INITIATED"] },
-                    { $eq: ["$unifiedStatus", "GENERATED"] },
-                    { $eq: ["$unifiedStatus", "PROCESSING"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          refundCount: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "REFUND"] },
-                    { $eq: ["$unifiedStatus", "REFUNDED"] },
-                    { $eq: ["$unifiedStatus", "CANCELLED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          // Amount totals
-          totalIncome: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "SUCCESS"] },
-                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
-                    { $eq: ["$unifiedStatus", "COMPLETED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
-                  ]
-                },
-                then: "$unifiedAmount",
-                else: 0
-              }
-            }
-          }
-        }
-      },
-      {
-        $project: {
-          _id: 0,
-          date: "$_id.date",
-          successCount: 1,
-          failedCount: 1,
-          pendingCount: 1,
-          refundCount: 1,
-          totalIncome: 1
-        }
-      },
-      { $sort: { date: 1 } }
-    ]);
-
-    console.log(`✅ Merchant sales report processed: ${salesReport.length} days`);
-
-    // Fill missing dates
-    let filledReport = salesReport;
-    if (salesReport.length === 0 || salesReport.length < 7) {
-      console.log('📊 Filling missing dates for merchant sales report');
-      filledReport = fillMissingDates(salesReport, timeFilter);
-    }
-    
-    res.status(200).json(filledReport);
-
-  } catch (error) {
-    console.error('❌ Sales Report Error:', error);
-    res.status(500).json({ 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-};
 
 // Get current merchant info
 export const getCurrentMerchant = async (req, res) => {
@@ -773,258 +1167,5 @@ export const getCurrentMerchantTransactions = async (req, res) => {
       error: error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
-  }
-};
-
-// ✅ Get ONLY current merchant's analytics
-export const getCurrentMerchantAnalytics = async (req, res) => {
-  try {
-    const { merchantId, timeFilter = 'today', startDate, endDate } = req.query;
-
-    console.log('🟡 Current Merchant Analytics Request:', { merchantId, timeFilter });
-
-    if (!merchantId || merchantId === 'all' || merchantId === 'null') {
-      return res.status(400).json({ 
-        message: 'Valid merchant ID is required' 
-      });
-    }
-
-    // Build match query
-    let matchQuery = {};
-
-    // ✅ यहाँ merchantId filter लगाया जाएगा
-    if (mongoose.Types.ObjectId.isValid(merchantId)) {
-      matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
-    } else {
-      matchQuery.merchantId = merchantId;
-    }
-
-    // Date filter
-    const dateRange = getDateRange(timeFilter, startDate, endDate);
-    if (Object.keys(dateRange).length > 0) {
-      matchQuery.createdAt = dateRange.createdAt;
-    }
-
-    console.log('🔍 Current Merchant Analytics Match Query:', JSON.stringify(matchQuery, null, 2));
-
-    // Use the same aggregation as admin dashboard but with merchant filter
-    const aggregationPipeline = [
-      {
-        $match: matchQuery
-      },
-      {
-        $addFields: {
-          unifiedAmount: {
-            $cond: {
-              if: { $ne: ["$amount", undefined] },
-              then: "$amount",
-              else: { $ifNull: ["$Amount", 0] }
-            }
-          },
-          unifiedStatus: {
-            $cond: {
-              if: { $ne: ["$status", undefined] },
-              then: { $toUpper: { $trim: { input: "$status" } } },
-              else: { 
-                $cond: {
-                  if: { $ne: ["$Transaction Status", undefined] },
-                  then: { $toUpper: { $trim: { input: "$Transaction Status" } } },
-                  else: "UNKNOWN"
-                }
-              }
-            }
-          }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalSuccessAmount: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "SUCCESS"] },
-                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
-                    { $eq: ["$unifiedStatus", "COMPLETED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
-                  ]
-                },
-                then: "$unifiedAmount",
-                else: 0
-              }
-            }
-          },
-          totalSuccessOrders: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "SUCCESS"] },
-                    { $eq: ["$unifiedStatus", "SUCCESSFUL"] },
-                    { $eq: ["$unifiedStatus", "COMPLETED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /SUCCESS/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          totalFailedAmount: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "FAILED"] },
-                    { $eq: ["$unifiedStatus", "FAILURE"] },
-                    { $eq: ["$unifiedStatus", "FALLED"] },
-                    { $eq: ["$unifiedStatus", "REJECTED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
-                  ]
-                },
-                then: "$unifiedAmount",
-                else: 0
-              }
-            }
-          },
-          totalFailedOrders: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "FAILED"] },
-                    { $eq: ["$unifiedStatus", "FAILURE"] },
-                    { $eq: ["$unifiedStatus", "FALLED"] },
-                    { $eq: ["$unifiedStatus", "REJECTED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /FAIL/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          totalPendingAmount: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "PENDING"] },
-                    { $eq: ["$unifiedStatus", "INITIATED"] },
-                    { $eq: ["$unifiedStatus", "GENERATED"] },
-                    { $eq: ["$unifiedStatus", "PROCESSING"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
-                  ]
-                },
-                then: "$unifiedAmount",
-                else: 0
-              }
-            }
-          },
-          totalPendingOrders: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "PENDING"] },
-                    { $eq: ["$unifiedStatus", "INITIATED"] },
-                    { $eq: ["$unifiedStatus", "GENERATED"] },
-                    { $eq: ["$unifiedStatus", "PROCESSING"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /PENDING/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          totalRefundAmount: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "REFUND"] },
-                    { $eq: ["$unifiedStatus", "REFUNDED"] },
-                    { $eq: ["$unifiedStatus", "CANCELLED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
-                  ]
-                },
-                then: "$unifiedAmount",
-                else: 0
-              }
-            }
-          },
-          totalRefundOrders: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ["$unifiedStatus", "REFUND"] },
-                    { $eq: ["$unifiedStatus", "REFUNDED"] },
-                    { $eq: ["$unifiedStatus", "CANCELLED"] },
-                    { $regexMatch: { input: "$unifiedStatus", regex: /REFUND/i } }
-                  ]
-                },
-                then: 1,
-                else: 0
-              }
-            }
-          },
-          totalTransactions: { $sum: 1 }
-        }
-      }
-    ];
-
-    const analyticsResult = await Transaction.aggregate(aggregationPipeline);
-    
-    let analytics = analyticsResult[0] || {
-      totalSuccessAmount: 0,
-      totalFailedAmount: 0,
-      totalPendingAmount: 0,
-      totalRefundAmount: 0,
-      totalSuccessOrders: 0,
-      totalFailedOrders: 0,
-      totalPendingOrders: 0,
-      totalRefundOrders: 0,
-      totalTransactions: 0
-    };
-
-    console.log('✅ Current Merchant Analytics Result:', {
-      merchantId: merchantId,
-      success: analytics.totalSuccessAmount,
-      total: analytics.totalTransactions
-    });
-
-    // If no transactions, provide sample data
-    if (analytics.totalTransactions === 0) {
-      analytics = {
-        ...analytics,
-        isDemoData: true,
-        message: 'No transactions found. Showing demo data.'
-      };
-    }
-
-    res.status(200).json(analytics);
-
-  } catch (error) {
-    console.error('❌ Error fetching current merchant analytics:', error);
-    
-    // Return zero data on error for merchant
-    const zeroAnalytics = {
-      totalSuccessAmount: 0,
-      totalFailedAmount: 0,
-      totalPendingAmount: 0,
-      totalRefundAmount: 0,
-      totalSuccessOrders: 0,
-      totalFailedOrders: 0,
-      totalPendingOrders: 0,
-      totalRefundOrders: 0,
-      totalTransactions: 0,
-      isError: true,
-      message: error.message
-    };
-    
-    res.status(500).json(zeroAnalytics);
   }
 };
