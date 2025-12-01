@@ -187,7 +187,7 @@ const generateCashfreeQR = async (transactionData, integrationKeys) => {
   }
 };
 
-// ✅ ENPAY QR GENERATION (DYNAMIC FROM DATABASE)
+
 const generateEnpayQR = async (transactionData, integrationKeys) => {
   try {
     console.log('🔍 CHECKING ENPAY CREDENTIALS FROM DATABASE:');
@@ -204,56 +204,87 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
 
     console.log('✅ All Enpay credentials present in database');
 
-    const payload = {
-      merchantHashId: integrationKeys.merchantHashId,
-      txnNote: transactionData.txnNote || 'Payment for Order',
-      txnRefId: transactionData.transactionId
-    };
-
-    if (transactionData.amount && transactionData.amount > 0) {
-      payload.txnAmount = transactionData.amount.toString();
+    // ✅ CRITICAL: Make sure merchantHashId is correct
+    const merchantHashId = integrationKeys.merchantHashId;
+    console.log('🔍 Merchant Hash ID:', merchantHashId);
+    
+    if (!merchantHashId || merchantHashId === 'MERCDSH51Y7CD4YJLFIZR8NF') {
+      console.log('⚠️ WARNING: Using test merchantHashId, check if valid');
     }
 
-    console.log('🟡 Sending to Enpay API with database credentials...');
+    // ✅ Create payload EXACTLY as Enpay expects
+    const payload = {
+      merchantHashId: merchantHashId,
+      txnRefId: transactionData.transactionId, // MUST be unique
+      txnNote: transactionData.txnNote || 'Payment for Order'
+    };
+
+    // ✅ Add amount ONLY if provided
+    if (transactionData.amount && transactionData.amount > 0) {
+      payload.txnAmount = transactionData.amount.toFixed(2); // Format to 2 decimal places
+    }
+
+    console.log('🟡 Sending to Enpay API with payload:', payload);
+
+    // ✅ Use the exact URL from your database
+    const baseUrl = integrationKeys.baseUrl || 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway';
+    const apiUrl = `${baseUrl}/dynamicQR`;
+    
+    console.log('🟡 Enpay API URL:', apiUrl);
 
     const response = await axios.post(
-      (integrationKeys.baseUrl || 'https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway') + '/dynamicQR',
+      apiUrl,
       payload,
       {
         headers: {
           'Content-Type': 'application/json',
           'X-Merchant-Key': integrationKeys['X-Merchant-Key'],
-          'X-Merchant-Secret': integrationKeys['X-Merchant-Secret']
+          'X-Merchant-Secret': integrationKeys['X-Merchant-Secret'],
+          'Accept': 'application/json'
         },
-        timeout: 25000
+        timeout: 30000
       }
     );
 
-    console.log('✅ ENPAY API SUCCESS with database credentials');
-    
+    console.log('✅ ENPAY API RESPONSE:', {
+      code: response.data.code,
+      message: response.data.message,
+      hasQR: !!response.data.details
+    });
+
+    // ✅ Check if Enpay successfully created the transaction
     if (response.data.code === 0) {
+      // Enpay QR is BASE64 encoded
+      const qrCodeData = response.data.details;
+      
       return {
         success: true,
-        qrData: response.data.details,
-        paymentUrl: `upi://pay?tr=${transactionData.transactionId}`,
+        qrData: `data:image/png;base64,${qrCodeData}`, // Convert to data URL
+        paymentUrl: `upi://pay?pa=${merchantHashId}@enpay&pn=Merchant&tr=${transactionData.transactionId}`,
         connector: 'enpay',
         message: 'QR generated via Enpay',
-        enpayResponse: response.data
+        enpayResponse: response.data,
+        enpayTransactionCreated: true,
+        enpayTxnId: transactionData.transactionId
       };
     } else {
-      throw new Error(response.data.message || `Enpay API error: ${response.data.code}`);
+      console.error('❌ Enpay returned error:', response.data);
+      throw new Error(`Enpay API error: ${response.data.message || response.data.code}`);
     }
     
   } catch (error) {
-    console.error('❌ ENPAY API FAILED with database credentials:', {
+    console.error('❌ ENPAY API FAILED:', {
       message: error.message,
       status: error.response?.status,
-      data: error.response?.data
+      data: error.response?.data,
+      url: error.config?.url
     });
-    throw error;
+    
+    // Provide detailed error
+    const errorMsg = error.response?.data?.message || error.message;
+    throw new Error(`Enpay QR generation failed: ${errorMsg}`);
   }
 };
-
 // ✅ GENERIC QR GENERATION - SUPPORTS ALL CONNECTORS (FIXED)
 export const generateGenericDynamicQR = async (transactionData, merchantConnectorAccount) => {
   try {
@@ -388,6 +419,8 @@ export const debugConnectorData = async (req, res) => {
 };
 
 // ✅ MAIN DYNAMIC QR FUNCTION (FIXED)
+// controllers/transactionController.js - UPDATE generateDynamicQR function
+
 export const generateDynamicQR = async (req, res) => {
   try {
     const { amount, txnNote = 'Payment for Order' } = req.body;
@@ -396,93 +429,110 @@ export const generateDynamicQR = async (req, res) => {
 
     console.log('🟡 Generate Dynamic QR - Start:', { merchantId, merchantName });
 
-    // ✅ STEP 1: GET MERCHANT CONNECTOR ACCOUNT FROM DATABASE
+    // ✅ Get merchant connector
     const merchantConnectorAccount = await getMerchantConnectorAccount(merchantId);
     
-    let connectorInfo = null;
-    let connectorName = 'fallback';
-
-    if (merchantConnectorAccount) {
-      connectorInfo = {
-        terminalId: merchantConnectorAccount.terminalId,
-        connectorId: merchantConnectorAccount.connectorId,
-        connectorName: merchantConnectorAccount.name || merchantConnectorAccount.connectorDetails?.name || 'Unknown',
-        connectorType: merchantConnectorAccount.connectorDetails?.connectorType || 'UPI'
-      };
-      connectorName = connectorInfo.connectorName.toLowerCase();
+    if (!merchantConnectorAccount) {
+      console.log('❌ No connector account found for merchant');
+      return res.status(400).json({
+        success: false,
+        message: 'No payment connector configured. Please set up Enpay connector first.'
+      });
     }
 
-    const parsedAmount = amount ? parseFloat(amount) : null;
-    const transactionId = generateTransactionId();
-    const vendorRefId = generateVendorRefId();
+    const connectorName = merchantConnectorAccount.name?.toLowerCase();
+    
+    if (connectorName !== 'enpay') {
+      console.log('❌ Connector is not Enpay:', connectorName);
+      return res.status(400).json({
+        success: false,
+        message: 'Please use Enpay connector for QR generation'
+      });
+    }
 
-    // ✅ TRANSACTION DATA (ALL DYNAMIC)
+    // ✅ Generate transaction IDs
+    const transactionId = `ENPAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const vendorRefId = `ENPAYVENDOR${Date.now()}`;
+
+    // ✅ CRITICAL: Create transaction with Enpay-specific fields
     const transactionData = {
       transactionId,
       merchantId: merchantId,
       merchantName,
-      amount: parsedAmount,
+      amount: amount ? parseFloat(amount) : null,
       status: 'INITIATED',
       createdAt: new Date().toISOString(),
       "Commission Amount": 0,
-      mid: req.user.mid || 'DEFAULT_MID',
+      mid: req.user.mid || 'ENPAY_MID',
       "Settlement Status": "UNSETTLED",
       "Vendor Ref ID": vendorRefId,
       txnNote,
-      merchantOrderId: `ORDER${Date.now()}`,
+      merchantOrderId: `ENPAYORDER${Date.now()}`,
       txnRefId: transactionId,
-      connectorUsed: connectorName,
-      terminalId: connectorInfo?.terminalId
+      
+      // ✅ ENPAY SPECIFIC FIELDS
+      connectorUsed: 'enpay',
+      connectorAccountId: merchantConnectorAccount._id,
+      connectorId: merchantConnectorAccount.connectorId,
+      terminalId: merchantConnectorAccount.terminalId,
+      merchantHashId: merchantConnectorAccount.integrationKeys?.merchantHashId,
+      
+      // Payment method details
+      paymentMethod: 'UPI',
+      paymentGateway: 'Enpay',
+      gatewayTransactionId: transactionId,
+      
+      // UPI Details
+      upiId: `${merchantConnectorAccount.integrationKeys?.merchantHashId}@enpay`,
+      merchantVpa: `${merchantConnectorAccount.integrationKeys?.merchantHashId}@enpay`,
+      
+      // Enpay status
+      enpayInitiationStatus: 'ATTEMPTED_SUCCESS',
+      isEnpayTransaction: true
     };
 
-    // Add connector info if available
-    if (connectorInfo) {
-      transactionData.connectorAccountId = merchantConnectorAccount._id;
-      transactionData.connectorId = connectorInfo.connectorId;
-      transactionData.connectorName = connectorInfo.connectorName;
-      transactionData.connectorType = connectorInfo.connectorType;
-    }
+    console.log('🟡 Creating Enpay transaction:', transactionId);
 
-    console.log('🟡 Creating transaction with connector:', connectorName);
-
-    // ✅ SAVE TRANSACTION FIRST
+    // ✅ Save transaction first
     const transaction = new Transaction(transactionData);
     const savedTransaction = await transaction.save();
     
     console.log('✅ Transaction saved successfully:', savedTransaction.transactionId);
 
-    // ✅ GENERIC QR GENERATION - ALL CONNECTORS SUPPORT (DYNAMIC FROM DB)
-    console.log('🟡 Calling Generic QR Generation...');
-    const qrResult = await generateGenericDynamicQR({
-      amount: parsedAmount,
+    // ✅ Generate QR through Enpay
+    console.log('🟡 Calling Enpay API...');
+    const qrResult = await generateEnpayQR({
+      amount: amount ? parseFloat(amount) : null,
       txnNote,
       transactionId,
-      merchantName
-    }, merchantConnectorAccount);
+      merchantName,
+      merchantHashId: merchantConnectorAccount.integrationKeys?.merchantHashId
+    }, merchantConnectorAccount.integrationKeys);
 
-    console.log('🟡 QR Generation Result:', {
+    console.log('🟡 Enpay QR Result:', {
       success: qrResult.success,
-      connector: qrResult.connector,
-      message: qrResult.message
+      hasQR: !!qrResult.qrData,
+      enpayTransactionCreated: qrResult.enpayTransactionCreated
     });
 
-    // ✅ UPDATE TRANSACTION WITH QR DATA
+    // ✅ Update transaction with Enpay response
     savedTransaction.qrCode = qrResult.qrData;
     savedTransaction.paymentUrl = qrResult.paymentUrl;
-    savedTransaction.connectorUsed = qrResult.connector;
-    savedTransaction.status = qrResult.success ? 'INITIATED' : 'FAILED';
+    savedTransaction.status = 'INITIATED';
+    savedTransaction.enpayTxnId = qrResult.enpayTxnId;
+    savedTransaction.enpayResponse = qrResult.enpayResponse;
+    savedTransaction.enpayInitiationStatus = 'ATTEMPTED_SUCCESS';
     
-    // Store connector response
-    if (qrResult.connector === 'cashfree' && qrResult.cashfreeResponse) {
-      savedTransaction.cashfreeResponse = qrResult.cashfreeResponse;
-    } else if (qrResult.connector === 'enpay' && qrResult.enpayResponse) {
-      savedTransaction.enpayResponse = qrResult.enpayResponse;
+    if (qrResult.enpayTransactionCreated) {
+      savedTransaction.enpayTransactionStatus = 'CREATED';
+      savedTransaction.gatewayTransactionId = qrResult.enpayTxnId;
     }
     
     await savedTransaction.save();
 
-    console.log('✅ QR Code generated successfully via:', qrResult.connector);
+    console.log('✅ Enpay QR generated successfully');
 
+    // ✅ Return proper response
     res.status(200).json({
       success: true,
       transactionId: savedTransaction.transactionId,
@@ -490,17 +540,34 @@ export const generateDynamicQR = async (req, res) => {
       paymentUrl: qrResult.paymentUrl,
       amount: savedTransaction.amount,
       status: savedTransaction.status,
-      connector: qrResult.connector,
-      connectorInfo: connectorInfo,
-      message: qrResult.message
+      connector: 'enpay',
+      message: 'QR generated via Enpay',
+      enpayTransactionId: qrResult.enpayTxnId,
+      enpayStatus: 'CREATED',
+      upiId: savedTransaction.upiId,
+      merchantHashId: savedTransaction.merchantHashId
     });
 
   } catch (error) {
     console.error('❌ Generate QR Error:', error);
+    
+    // Try to save failed transaction
+    try {
+      if (transaction) {
+        transaction.status = 'FAILED';
+        transaction.enpayInitiationStatus = 'ATTEMPTED_FAILED';
+        transaction.enpayError = error.message;
+        await transaction.save();
+      }
+    } catch (saveError) {
+      console.error('❌ Failed to save error transaction:', saveError);
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Failed to generate QR',
-      error: error.message
+      message: 'Failed to generate QR via Enpay',
+      error: error.message,
+      connector: 'enpay'
     });
   }
 };
