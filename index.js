@@ -2,37 +2,32 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
-import bodyParser from 'body-parser';
+import bodyParser from "body-parser";
 import connectDB from "./config/db.js"; // ✅ ही line add करा
 
-import merchantAuthRoutes from './routes/merchantAuthRoutes.js';
-import transactionRoutes from './routes/transactionRoutes.js';
-import dashboardRoutes from './routes/dashboardRoutes.js';
-
-import merchantRoutes from './routes/merchant.js';
+import merchantAuthRoutes from "./routes/merchantAuthRoutes.js";
+import transactionRoutes from "./routes/transactionRoutes.js";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
+import webhookRoutes from "./routes/webhook.js";
+import merchantRoutes from "./routes/merchant.js";
 dotenv.config();
 
 const app = express();
-
-
 
 // Middleware
 app.use(bodyParser.json());
 app.use(cors());
 
-
 connectDB();
 
-
-
-app.use('/api/merchant/auth', merchantAuthRoutes);
+app.use("/api/merchant/auth", merchantAuthRoutes);
 app.use("/api/transactions", transactionRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/merchant', merchantRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/merchant", merchantRoutes);
+app.use("/api", webhookRoutes);
 
-
-app.get('/', (req, res) => {
-  res.send('Welcome to the PG-Merchant Backend API!');
+app.get("/", (req, res) => {
+  res.send("Welcome to the PG-Merchant Backend API!");
 });
 
 const PORT = process.env.PORT || 5000;
