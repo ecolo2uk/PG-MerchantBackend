@@ -1,14 +1,32 @@
-// models/Transaction.js - COMPLETE UPDATED SCHEMA
 import mongoose from "mongoose";
 
 const transactionSchema = new mongoose.Schema(
   {
-    // Basic Info
+    // =========================
+    // BASIC TRANSACTION INFO
+    // =========================
     transactionId: {
       type: String,
       required: true,
       unique: true,
       index: true,
+    },
+
+    merchantOrderId: { type: String },
+    merchantHashId: { type: String },
+    merchantVpa: { type: String },
+
+    txnRefId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+
+    shortLinkId: {
+      type: String,
+      unique: true,
+      sparse: true,
     },
 
     merchantId: {
@@ -22,50 +40,132 @@ const transactionSchema = new mongoose.Schema(
       required: true,
     },
 
+    transactionMerchantName: String,
+    transactionMerchantID: String,
+    transactionOrderID: String,
+
+    mid: {
+      type: String,
+      default: "DEFAULT_MID",
+    },
+
+    // =========================
+    // AMOUNT & STATUS
+    // =========================
     amount: {
       type: Number,
-      required: false,
       default: null,
+    },
+
+    currency: {
+      type: String,
+      default: "INR",
     },
 
     status: {
       type: String,
-      required: true,
       default: "INITIATED",
       enum: [
         "INITIATED",
         "PENDING",
         "SUCCESS",
         "FAILED",
-        "REFUNDED",
         "CANCELLED",
+        "REFUNDED",
+        "REDIRECTED",
       ],
     },
 
-    createdAt: {
-      type: Date,
-      default: Date.now,
+    // =========================
+    // PAYMENT DETAILS
+    // =========================
+    paymentMethod: {
+      type: String,
+      default: "UPI",
     },
 
-    updatedAt: {
-      type: Date,
-      default: Date.now,
+    paymentOption: String,
+
+    paymentUrl: {
+      type: String,
+      default: "",
     },
 
-    // QR & Payment Info
-    qrCode: String,
-    paymentUrl: String,
-    txnNote: String,
-    isDefaultQR: {
-      type: Boolean,
-      default: false,
-    },
-    isStaticQR: {
-      type: Boolean,
-      default: false,
+    source: {
+      type: String,
+      default: "payment_gateway",
     },
 
-    // Enpay Specific Fields - UPDATED
+    txnNote: {
+      type: String,
+      default: "",
+    },
+
+    // =========================
+    // CONNECTOR INFO
+    // =========================
+    connectorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Connector",
+    },
+
+    connectorAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ConnectorAccount",
+    },
+
+    connectorName: String,
+    connectorUsed: String,
+
+    terminalId: {
+      type: String,
+      default: "N/A",
+    },
+
+    paymentGateway: String,
+    gatewayTransactionId: String,
+
+    // =========================
+    // QR & PAYMENT LINK INFO
+    // =========================
+    qrCode: {
+      type: String,
+      default: "",
+    },
+
+    encryptedPaymentPayload: {
+      type: String,
+      default: "",
+    },
+
+    gatewayTxnId: {
+      type: String,
+      default: "",
+    },
+
+    gatewayPaymentLink: {
+      type: String,
+      default: "",
+    },
+
+    gatewayOrderId: {
+      type: String,
+      default: "",
+    },
+
+    cfOrderId: {
+      type: String,
+      default: "",
+    },
+
+    cfPaymentLink: {
+      type: String,
+      default: "",
+    },
+
+    // =========================
+    // ENPAY FIELDS (MERGED)
+    // =========================
     enpayInitiationStatus: {
       type: String,
       enum: [
@@ -77,28 +177,53 @@ const transactionSchema = new mongoose.Schema(
       default: "NOT_ATTEMPTED",
     },
 
-    enpayQRCode: String,
-    enpayTxnId: String,
+    enpayTxnId: {
+      type: String,
+      default: "",
+    },
+
+    enpayQrCode: {
+      type: String,
+      default: "",
+    },
+
+    enpayPaymentLink: {
+      type: String,
+      default: "",
+    },
+
     enpayError: String,
     enpayResponse: mongoose.Schema.Types.Mixed,
     enpayTransactionStatus: String,
 
-    // Connector Info
-    connectorUsed: String,
-    connectorAccountId: mongoose.Schema.Types.ObjectId,
-    connectorId: mongoose.Schema.Types.ObjectId,
-    terminalId: String,
-    merchantHashId: String,
+    // =========================
+    // CUSTOMER INFO
+    // =========================
+    customerName: {
+      type: String,
+      default: "",
+    },
 
-    // Payment Gateway Info
-    paymentGateway: String,
-    gatewayTransactionId: String,
+    customerVpa: {
+      type: String,
+      default: "",
+    },
 
-    // UPI Details
+    customerContact: {
+      type: String,
+      default: "",
+    },
+
+    customerEmail: {
+      type: String,
+      default: "",
+    },
+
     upiId: String,
-    merchantVpa: String,
 
-    // Settlement Info
+    // =========================
+    // SETTLEMENT INFO
+    // =========================
     commissionAmount: {
       type: Number,
       default: 0,
@@ -109,32 +234,43 @@ const transactionSchema = new mongoose.Schema(
       default: 0,
     },
 
-    mid: {
-      type: String,
-      default: "DEFAULT_MID",
-    },
-
     settlementStatus: {
       type: String,
       default: "UNSETTLED",
-      enum: ["UNSETTLED", "SETTLED", "PROCESSING"],
+      enum: ["UNSETTLED", "SETTLED", "PROCESSING", "PENDING"],
     },
 
     vendorRefId: String,
 
-    // Customer Info
-    customerName: String,
-    customerVpa: String,
-    customerContact: String,
-
-    // Payment Info
-    paymentMethod: {
-      type: String,
-      default: "UPI",
+    // =========================
+    // FLAGS
+    // =========================
+    isDefaultQR: {
+      type: Boolean,
+      default: false,
     },
 
-    merchantOrderId: String,
-    txnRefId: String,
+    isStaticQR: {
+      type: Boolean,
+      default: false,
+    },
+
+    // =========================
+    // DATE FIELDS
+    // =========================
+    transactionCompletedAt: Date,
+    transactionInitiatedAt: Date,
+    redirectedAt: Date,
+
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
   },
   {
     collection: "transactions",
@@ -142,12 +278,23 @@ const transactionSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
+// =========================
+// INDEXES (MERGED)
+// =========================
 transactionSchema.index({ merchantId: 1, createdAt: -1 });
 // transactionSchema.index({ transactionId: 1 });
-transactionSchema.index({ txnRefId: 1 });
+// transactionSchema.index({ txnRefId: 1 });
 transactionSchema.index({ enpayTxnId: 1 });
 transactionSchema.index({ status: 1 });
 transactionSchema.index({ createdAt: -1 });
+
+// =========================
+// METHODS
+// =========================
+transactionSchema.methods.generateShortLink = function () {
+  const shortId = require("shortid").generate();
+  this.shortLinkId = shortId;
+  return shortId;
+};
 
 export default mongoose.model("Transaction", transactionSchema);
