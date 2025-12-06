@@ -1,0 +1,18 @@
+$gitignoreContent = @"
+node_modules/
+.env
+uploads/
+*.log
+*.key
+*.pem
+*secret*
+*config.json
+*shpat_*
+*shops_*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+"@
+$gitignoreContent | Out-File -FilePath .gitignore -Encoding UTF8
+.vercel
