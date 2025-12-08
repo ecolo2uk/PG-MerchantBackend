@@ -17,7 +17,7 @@ const app = express();
 // Middleware
 app.use(bodyParser.json());
 app.use(cors());
-
+// app.use(express.urlencoded({ extended: true }));
 connectDB();
 
 app.use("/api/merchant/auth", merchantAuthRoutes);

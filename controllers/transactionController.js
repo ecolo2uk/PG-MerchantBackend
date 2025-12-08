@@ -25,6 +25,7 @@ export const getMerchantConnectorAccount = async (merchantId) => {
     let connectorAccount = await mongoose.connection.db
       .collection("merchantconnectoraccounts")
       .findOne({
+        isPrimary: true,
         $or: [
           { userId: merchantObjectId, status: "Active" },
           { merchantId: merchantObjectId, status: "Active" },
@@ -61,15 +62,9 @@ export const getMerchantConnectorAccount = async (merchantId) => {
     //   });
 
     if (connectorAccount) {
-      console.log("✅ Merchant Connector Account Found:", {
-        // id: connectorAccount._id,
-        // name: connectorAccount.name,
-        // userId: connectorAccount.userId,
-        // merchantId: connectorAccount.merchantId,
-        // terminalId: connectorAccount.terminalId,
-        // status: connectorAccount.status,
-        connectorAccount,
-      });
+      // console.log("✅ Merchant Connector Account Found:", {
+      //   connectorAccount,
+      // });
 
       // ✅ FIX 2: Get integration keys from multiple possible sources
       const integrationKeys =
@@ -106,6 +101,7 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
       "X-Merchant-Key",
       "X-Merchant-Secret",
       "merchantHashId",
+      "merchantVpa",
     ];
     const missingKeys = requiredKeys.filter((key) => !integrationKeys[key]);
 
@@ -122,21 +118,28 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
       txnRefId: transactionData.transactionId,
       txnNote: transactionData.txnNote || "Payment",
     };
-
+    let apiUrl;
     // Add amount only if provided (for dynamic QR)
     if (transactionData.amount && transactionData.amount > 0) {
       payload.txnAmount = parseFloat(transactionData.amount).toFixed(2);
       console.log("💰 Amount added to payload:", payload.txnAmount);
+
+      console.log("🟡 Enpay API Payload:", payload);
+
+      // Use base URL from integration keys or default
+      const baseUrl =
+        integrationKeys.baseUrl ||
+        "https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway";
+      apiUrl = `${baseUrl}/dynamicQR`;
+    } else {
+      console.log("🟡 Enpay API Payload:", payload);
+
+      // Use base URL from integration keys or default
+      const baseUrl =
+        integrationKeys.baseUrl ||
+        "https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway";
+      apiUrl = `${baseUrl}/staticQR`;
     }
-
-    console.log("🟡 Enpay API Payload:", payload);
-
-    // Use base URL from integration keys or default
-    const baseUrl =
-      integrationKeys.baseUrl ||
-      "https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway";
-    const apiUrl = `${baseUrl}/dynamicQR`;
-
     console.log("🟡 Calling Enpay API:", apiUrl);
 
     const response = await axios.post(apiUrl, payload, {
@@ -309,12 +312,260 @@ export const generateDynamicQR = async (req, res) => {
 
       // UPI Info
       upiId: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
-      merchantVpa: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
+      merchantVpa: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantVpa}`,
 
       // Settlement Info
       commissionAmount: 0,
       netAmount: amount ? parseFloat(amount) : 0,
       mid: req.user.mid || "ENPAY_MID",
+      settlementStatus: "UNSETTLED",
+      vendorRefId: `VENDOR${Date.now()}`,
+    };
+
+    console.log("📊 Transaction data prepared:", transactionData);
+
+    // ✅ Step 4: Save to Database FIRST
+    console.log("🟡 Step 4: Saving to database...");
+    const transaction = new Transaction(transactionData);
+    savedTransaction = await transaction.save();
+
+    console.log("✅ Transaction saved in database:", {
+      id: savedTransaction._id,
+      transactionId: savedTransaction.transactionId,
+      amount: savedTransaction.amount,
+    });
+
+    // ✅ Step 5: Generate QR via Enpay
+    console.log(
+      "🟡 Step 5: Calling Enpay API...",
+      merchantConnectorAccount.connectorAccDetails
+    );
+
+    const qrResult = await generateEnpayQR(
+      {
+        amount: amount ? parseFloat(amount) : null,
+        txnNote,
+        transactionId,
+        merchantName,
+        merchantHashId:
+          merchantConnectorAccount.connectorAccDetails.integrationKeys
+            ?.merchantHashId,
+      },
+      merchantConnectorAccount.connectorAccDetails.integrationKeys
+    );
+
+    console.log("✅ QR Generation Result:", {
+      success: qrResult.success,
+      enpayTransactionCreated: qrResult.enpayTransactionCreated,
+      connector: qrResult.connector,
+      hasQR: !!qrResult.qrData,
+    });
+
+    // ✅ Step 6: Update Transaction with QR Data
+    console.log("🟡 Step 6: Updating transaction with QR data...");
+
+    const updateData = {
+      qrCode: qrResult.qrData,
+      paymentUrl: qrResult.paymentUrl,
+      enpayTxnId: qrResult.enpayTxnId,
+      enpayResponse: qrResult.enpayResponse,
+      enpayTransactionStatus: "CREATED",
+      enpayInitiationStatus: "ENPAY_CREATED",
+      updatedAt: new Date(),
+    };
+
+    if (qrResult.enpayTransactionCreated) {
+      updateData.status = "INITIATED";
+      updateData.gatewayTransactionId = qrResult.enpayTxnId;
+    }
+
+    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData);
+
+    // Fetch updated transaction
+    const updatedTransaction = await Transaction.findById(savedTransaction._id);
+
+    console.log(
+      "✅ Transaction updated successfully:",
+      updatedTransaction.transactionId
+    );
+
+    // ✅ Step 7: Return Response
+    console.log("🟡 Step 7: Returning response...");
+
+    const responseData = {
+      success: true,
+      transactionId: updatedTransaction.transactionId,
+      enpayTxnId: updatedTransaction.enpayTxnId,
+      qrCode: updatedTransaction.qrCode,
+      paymentUrl: updatedTransaction.paymentUrl,
+      amount: updatedTransaction.amount,
+      status: updatedTransaction.status,
+      connector: "enpay",
+      enpayStatus: "CREATED",
+      merchantHashId: updatedTransaction.merchantHashId,
+      upiId: updatedTransaction.upiId,
+      message: "QR generated successfully via Enpay",
+      transaction: {
+        _id: updatedTransaction._id,
+        createdAt: updatedTransaction.createdAt,
+        updatedAt: updatedTransaction.updatedAt,
+      },
+    };
+
+    console.log("✅ Response prepared:", responseData.success);
+    console.log("🚀 ========== GENERATE DYNAMIC QR COMPLETED ==========");
+
+    res.status(200).json(responseData);
+  } catch (error) {
+    console.error("❌ GENERATE QR ERROR:", error);
+
+    // Update transaction status if it exists
+    if (savedTransaction && savedTransaction._id) {
+      try {
+        await Transaction.findByIdAndUpdate(savedTransaction._id, {
+          status: "FAILED",
+          enpayInitiationStatus: "ATTEMPTED_FAILED",
+          enpayError: error.message,
+          updatedAt: new Date(),
+        });
+        console.log("✅ Updated transaction as FAILED");
+      } catch (updateError) {
+        console.error("❌ Failed to update transaction status:", updateError);
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate QR",
+      error: error.message,
+      details: error.response?.data || null,
+      connector: "enpay",
+    });
+  }
+};
+
+export const generateDynamicQRTransaction = async (req, res) => {
+  console.log("Body keys:", Object.keys(req.body));
+  console.log("🔍 Request Headers:", req.headers["content-type"]);
+
+  let savedTransaction = null;
+
+  try {
+    // ✅ FIX 1: Check if body exists
+    if (!req.body) {
+      console.error("❌ ERROR: req.body is undefined");
+      return res.status(400).json({
+        success: false,
+        message: "Request body is required",
+        error: "req.body is undefined",
+      });
+    }
+
+    const {
+      amount,
+      merchantId,
+      merchantName,
+      mid,
+      txnNote = "Payment for Order",
+    } = req.body;
+
+    // ✅ FIX 2: Log the actual values
+    console.log("🟡 Parsed values:", {
+      amount: amount,
+      txnNote: txnNote,
+      merchantId: merchantId,
+      merchantName: merchantName,
+      bodyType: typeof req.body,
+      bodyKeys: Object.keys(req.body),
+    });
+
+    // const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
+
+    if (!merchantId) {
+      return res.status(400).json({
+        success: false,
+        message: "Merchant ID not found",
+      });
+    }
+
+    console.log("🟡 Generate Request:", {
+      merchantId,
+      merchantName,
+      amount,
+      txnNote,
+    });
+
+    // ✅ Step 1: Get Merchant Connector
+    console.log("🟡 Step 1: Getting merchant connector...");
+    const merchantConnectorAccount = await getMerchantConnectorAccount(
+      merchantId
+    );
+
+    if (!merchantConnectorAccount) {
+      console.log("❌ No connector account found for merchant");
+      return res.status(400).json({
+        success: false,
+        message:
+          "No payment connector configured. Please set up a connector first.",
+        needsSetup: true,
+      });
+    }
+
+    console.log(
+      "✅ Merchant connector found:",
+      merchantConnectorAccount.connectorAccDetails.name
+    );
+
+    // ✅ Step 2: Generate Transaction IDs
+    console.log("🟡 Step 2: Generating transaction IDs...");
+    const transactionId = generateEnpayTransactionId();
+    const txnRefId = transactionId; // Use same as transactionId for Enpay
+    const merchantOrderId = `ORDER${Date.now()}`;
+
+    console.log("📝 Generated IDs:", {
+      transactionId,
+      txnRefId,
+      merchantOrderId,
+    });
+
+    // ✅ Step 3: Create Transaction Object
+    console.log("🟡 Step 3: Creating transaction object...");
+    const transactionData = {
+      transactionId,
+      merchantId: merchantId,
+      merchantName,
+      amount: amount ? parseFloat(amount) : null,
+      status: "INITIATED",
+      txnNote,
+
+      // Enpay Specific
+      enpayInitiationStatus: "ATTEMPTED_SUCCESS",
+      isEnpayTransaction: true,
+
+      // Connector Info
+      connectorUsed: "enpay",
+      connectorAccountId: merchantConnectorAccount.connectorAccDetails._id,
+      connectorId: merchantConnectorAccount.connectorAccDetails.connectorId,
+      terminalId: merchantConnectorAccount.terminalId,
+      merchantHashId:
+        merchantConnectorAccount.connectorAccDetails.integrationKeys
+          ?.merchantHashId,
+
+      // Payment Info
+      paymentGateway: "Enpay",
+      gatewayTransactionId: transactionId,
+      paymentMethod: "UPI",
+      merchantOrderId,
+      txnRefId,
+
+      // UPI Info
+      upiId: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
+      merchantVpa: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantVpa}`,
+
+      // Settlement Info
+      commissionAmount: 0,
+      netAmount: amount ? parseFloat(amount) : 0,
+      mid: mid || "ENPAY_MID",
       settlementStatus: "UNSETTLED",
       vendorRefId: `VENDOR${Date.now()}`,
     };
@@ -611,12 +862,195 @@ export const generateDefaultQR = async (req, res) => {
 
       // UPI info
       upiId: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
-      merchantVpa: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
+      merchantVpa: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantVpa}`,
 
       // Settlement
       commissionAmount: 0,
       netAmount: 0,
       mid: req.user?.mid || "ENPAY_MID",
+      settlementStatus: "UNSETTLED",
+    };
+
+    console.log("📊 Static QR Transaction Data:", transactionData);
+
+    // Save to database
+    const transaction = new Transaction(transactionData);
+    savedTransaction = await transaction.save();
+
+    console.log("✅ Static QR transaction saved:", savedTransaction._id);
+
+    // ✅ FIX: Generate STATIC QR (no amount) for Enpay API
+    console.log("🟡 Calling Enpay STATIC QR API...");
+
+    const qrResult = await generateEnpayQR(
+      {
+        amount: 0, // ✅ Send 0 for static QR (Enpay requirement)
+        txnNote: "Static QR Payment",
+        transactionId,
+        merchantName,
+        merchantHashId:
+          merchantConnectorAccount.connectorAccDetails.integrationKeys
+            ?.merchantHashId,
+      },
+      merchantConnectorAccount.connectorAccDetails.integrationKeys
+    );
+
+    console.log("✅ Static QR Generation Result:", {
+      success: qrResult.success,
+      isStaticQR: qrResult.isStaticQR,
+    });
+
+    // Update transaction
+    const updateData = {
+      qrCode: qrResult.qrData,
+      paymentUrl: qrResult.paymentUrl,
+      enpayTxnId: qrResult.enpayTxnId,
+      enpayResponse: qrResult.enpayResponse,
+      enpayTransactionStatus: "CREATED",
+      enpayInitiationStatus: "ENPAY_CREATED",
+      isStaticQR: true,
+      isDefaultQR: true,
+      updatedAt: new Date(),
+    };
+
+    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData);
+
+    const updatedTransaction = await Transaction.findById(savedTransaction._id);
+
+    console.log("✅ Static QR generated successfully");
+
+    res.status(200).json({
+      success: true,
+      transactionId: updatedTransaction.transactionId,
+      qrCode: updatedTransaction.qrCode,
+      paymentUrl: updatedTransaction.paymentUrl,
+      status: updatedTransaction.status,
+      isStatic: true,
+      isDefault: true,
+      connector: "enpay",
+      message: "Static QR generated successfully",
+      note: "Scan this QR code and enter any amount in your UPI app",
+    });
+  } catch (error) {
+    console.error("❌ Generate Static QR Error:", error);
+
+    // Update transaction status if it exists
+    if (savedTransaction && savedTransaction._id) {
+      try {
+        await Transaction.findByIdAndUpdate(savedTransaction._id, {
+          status: "FAILED",
+          enpayInitiationStatus: "ATTEMPTED_FAILED",
+          enpayError: error.message,
+          updatedAt: new Date(),
+        });
+        console.log("✅ Updated static QR transaction as FAILED");
+      } catch (updateError) {
+        console.error("❌ Failed to update transaction status:", updateError);
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate static QR",
+      error: error.message,
+      details: error.response?.data || null,
+      connector: "enpay",
+    });
+  }
+};
+
+export const generateDefaultQRTransaction = async (req, res) => {
+  console.log("🔵 ========== GENERATE DEFAULT/STATIC QR STARTED ==========");
+  console.log(req.body);
+  let savedTransaction = null;
+
+  try {
+    if (!req.body) {
+      console.error("❌ ERROR: req.body is undefined");
+      return res.status(400).json({
+        success: false,
+        message: "Request body is required",
+        error: "req.body is undefined",
+      });
+    }
+
+    const { merchantId, merchantName, mid } = req.body;
+
+    // ✅ FIX 2: Log the actual values
+    console.log("🟡 Parsed values:", {
+      merchantId: merchantId,
+      merchantName: merchantName,
+      bodyType: typeof req.body,
+      bodyKeys: Object.keys(req.body),
+    });
+
+    // const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
+
+    if (!merchantId) {
+      return res.status(400).json({
+        success: false,
+        message: "Merchant ID not found",
+      });
+    }
+
+    console.log("🔵 Generate Static QR for:", merchantId);
+
+    // Get merchant connector
+    const merchantConnectorAccount = await getMerchantConnectorAccount(
+      merchantId
+    );
+
+    if (!merchantConnectorAccount) {
+      console.log("❌ No connector account found for merchant");
+      return res.status(400).json({
+        success: false,
+        message: "No payment connector configured",
+        needsSetup: true,
+      });
+    }
+
+    console.log(
+      "✅ Merchant connector found for static QR:",
+      merchantConnectorAccount.connectorAccDetails.name
+    );
+
+    const transactionId = `STATIC${Date.now()}`;
+    const txnRefId = transactionId;
+
+    // Create transaction
+    const transactionData = {
+      transactionId,
+      merchantId: merchantId,
+      merchantName,
+      amount: null, // ✅ NULL for static QR (no amount)
+      status: "INITIATED",
+      txnNote: "Static QR Payment",
+      isStaticQR: true, // ✅ Mark as static QR
+      isDefaultQR: true,
+
+      // Enpay info
+      connectorUsed: "enpay",
+      connectorAccountId: merchantConnectorAccount.connectorAccDetails._id,
+      connectorId: merchantConnectorAccount.connectorAccDetails.connectorId,
+      merchantHashId:
+        merchantConnectorAccount.connectorAccDetails.integrationKeys
+          ?.merchantHashId,
+
+      // Payment info
+      paymentGateway: "Enpay",
+      gatewayTransactionId: transactionId,
+      paymentMethod: "UPI",
+      txnRefId,
+      merchantOrderId: `ORDER${Date.now()}`,
+
+      // UPI info
+      upiId: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
+      merchantVpa: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantVpa}`,
+
+      // Settlement
+      commissionAmount: 0,
+      netAmount: 0,
+      mid: mid || "ENPAY_MID",
       settlementStatus: "UNSETTLED",
     };
 

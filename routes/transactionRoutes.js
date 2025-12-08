@@ -7,12 +7,16 @@ import {
   getMerchantConnector,
   createDefaultConnectorAccount,
   debugEndpoint,
+  generateDynamicQRTransaction,
+  generateDefaultQRTransaction,
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
 router.get("/", authenticateMerchant, getTransactions);
+router.post("/generate-static-qr", generateDefaultQRTransaction);
+router.post("/generate-dynamic-qr", generateDynamicQRTransaction);
 router.post("/generate-qr", authenticateMerchant, generateDynamicQR);
 router.post("/default-qr", authenticateMerchant, generateDefaultQR);
 router.get("/connector", authenticateMerchant, getMerchantConnector);
