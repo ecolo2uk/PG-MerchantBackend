@@ -11,7 +11,7 @@ import {
   checkDatabaseState,
   getMerchantAnalyticsWithInitiated,
 } from "../controllers/dashboardController.js";
-import { authenticateMerchant } from "../middleware/authMiddleware.js";
+// import { authenticateMerchant } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
