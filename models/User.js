@@ -7,10 +7,14 @@ const UserSchema = new mongoose.Schema(
     company: { type: String },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
+
+    headerKey: {
+      type: String,
+    },
     role: {
       type: String,
       required: true,
-      enum: ["admin", "merchant", "psp"]
+      enum: ["admin", "merchant", "psp"],
     },
     status: {
       type: String,
@@ -27,8 +31,29 @@ const UserSchema = new mongoose.Schema(
         fileUrl: { type: String },
       },
     ],
+    balance: {
+      type: Number,
+      default: 0,
+    },
+    unsettleBalance: {
+      type: Number,
+      default: 0,
+    },
+    bankDetails: {
+      bankName: { type: String },
+      accountNumber: { type: String },
+      ifscCode: { type: String },
+      accountHolderName: { type: String },
+      accountType: { type: String, enum: ["Saving", "Current"] },
+    },
+    merchantRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Merchant",
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
 const User = mongoose.model("User", UserSchema);

@@ -2,12 +2,17 @@
 import Transaction from "../models/Transaction.js";
 import mongoose from "mongoose";
 import axios from "axios";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import User from "../models/User.js";
 
 // Generate unique IDs
 const generateTransactionId = () =>
   `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const generateEnpayTransactionId = () =>
   `ENPAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:5001";
 
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
@@ -247,6 +252,14 @@ export const generateDynamicQR = async (req, res) => {
       txnNote,
     });
 
+    const amountNum = parseFloat(amount);
+    if (amountNum < 500) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount should be greater than 500",
+      });
+    }
+
     // ✅ Step 1: Get Merchant Connector
     console.log("🟡 Step 1: Getting merchant connector...");
     const merchantConnectorAccount = await getMerchantConnectorAccount(
@@ -436,7 +449,7 @@ export const generateDynamicQR = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Failed to generate QR",
+      message: "Failed to generate dynamic QR",
       error: error.message,
       details: error.response?.data || null,
       connector: "enpay",
@@ -446,11 +459,50 @@ export const generateDynamicQR = async (req, res) => {
 
 export const generateDynamicQRTransaction = async (req, res) => {
   console.log("Body keys:", Object.keys(req.body));
-  console.log("🔍 Request Headers:", req.headers["content-type"]);
-
+  console.log("🔍 Request Headers:", req.headers);
   let savedTransaction = null;
 
   try {
+    const authHeader =
+      req.headers["authorization"] || req.headers["Authorization"];
+
+    if (!authHeader) {
+      return res
+        .status(401)
+        .json({ success: false, message: "No token provided" });
+    }
+
+    // Split 'Bearer TOKEN' → get the actual token
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Token malformed" });
+    }
+
+    // console.log("Token received:", token);
+
+    // Now you can verify JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    // console.log("Decoded payload:", decoded);
+    let user;
+    if (decoded) user = await User.findOne({ _id: decoded.userId });
+    if (!user) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid merchant token" });
+    }
+
+    const isMatch = await bcrypt.compare(decoded.password, user.password);
+    if (!isMatch) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
+    }
+
+    // console.log("Req Body:", !req.body);
+
     // ✅ FIX 1: Check if body exists
     if (!req.body) {
       console.error("❌ ERROR: req.body is undefined");
@@ -461,32 +513,35 @@ export const generateDynamicQRTransaction = async (req, res) => {
       });
     }
 
-    const {
-      amount,
-      merchantId,
-      merchantName,
-      mid,
-      txnNote = "Payment for Order",
-    } = req.body;
+    const merchantId = user._id;
+    const merchantName = user?.firstname + " " + (user?.lastname || "");
+
+    const { txnRefId, amount, txnNote = "Payment for Order" } = req.body;
+
+    if (!txnRefId) {
+      return res.status(400).json({
+        success: false,
+        message: "TxnRefId cannot be blank",
+      });
+    }
+
+    if (!amount) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount cannot be blank",
+      });
+    }
 
     // ✅ FIX 2: Log the actual values
     console.log("🟡 Parsed values:", {
+      txnRefId,
       amount: amount,
       txnNote: txnNote,
-      merchantId: merchantId,
+      merchantId,
       merchantName: merchantName,
       bodyType: typeof req.body,
       bodyKeys: Object.keys(req.body),
     });
-
-    // const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
-
-    if (!merchantId) {
-      return res.status(400).json({
-        success: false,
-        message: "Merchant ID not found",
-      });
-    }
 
     console.log("🟡 Generate Request:", {
       merchantId,
@@ -494,6 +549,26 @@ export const generateDynamicQRTransaction = async (req, res) => {
       amount,
       txnNote,
     });
+
+    // ✅ Check if txnRefId already exists
+    const existingTxnRefId = await Transaction.findOne({ txnRefId });
+    if (existingTxnRefId) {
+      return res.status(400).json({ message: "TxnRefId already exists" });
+    }
+
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid amount. Amount should be a valid number",
+      });
+    }
+    if (amountNum < 500) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount should be greater than 500",
+      });
+    }
 
     // ✅ Step 1: Get Merchant Connector
     console.log("🟡 Step 1: Getting merchant connector...");
@@ -505,8 +580,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
       console.log("❌ No connector account found for merchant");
       return res.status(400).json({
         success: false,
-        message:
-          "No payment connector configured. Please set up a connector first.",
+        message: "No payment connector configured. Please contact admin.",
         needsSetup: true,
       });
     }
@@ -518,8 +592,8 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     // ✅ Step 2: Generate Transaction IDs
     console.log("🟡 Step 2: Generating transaction IDs...");
-    const transactionId = generateEnpayTransactionId();
-    const txnRefId = transactionId; // Use same as transactionId for Enpay
+    const transactionId = txnRefId;
+    // const txnRefId = transactionId; // Use same as transactionId for Enpay
     const merchantOrderId = `ORDER${Date.now()}`;
 
     console.log("📝 Generated IDs:", {
@@ -565,7 +639,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
       // Settlement Info
       commissionAmount: 0,
       netAmount: amount ? parseFloat(amount) : 0,
-      mid: mid || "ENPAY_MID",
+      mid: user.mid || "ENPAY_MID",
       settlementStatus: "UNSETTLED",
       vendorRefId: `VENDOR${Date.now()}`,
     };
@@ -642,22 +716,22 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     const responseData = {
       success: true,
-      transactionId: updatedTransaction.transactionId,
-      enpayTxnId: updatedTransaction.enpayTxnId,
+      txnRefId: updatedTransaction.txnRefId,
       qrCode: updatedTransaction.qrCode,
       paymentUrl: updatedTransaction.paymentUrl,
       amount: updatedTransaction.amount,
       status: updatedTransaction.status,
-      connector: "enpay",
-      enpayStatus: "CREATED",
-      merchantHashId: updatedTransaction.merchantHashId,
-      upiId: updatedTransaction.upiId,
-      message: "QR generated successfully via Enpay",
-      transaction: {
-        _id: updatedTransaction._id,
-        createdAt: updatedTransaction.createdAt,
-        updatedAt: updatedTransaction.updatedAt,
-      },
+      message: "Dynamic QR generated successfully",
+      // connector: "enpay",
+      // enpayStatus: "CREATED",
+      // enpayTxnId: updatedTransaction.enpayTxnId,
+      // merchantHashId: updatedTransaction.merchantHashId,
+      // upiId: updatedTransaction.upiId,
+      // transaction: {
+      //   _id: updatedTransaction._id,
+      //   createdAt: updatedTransaction.createdAt,
+      //   updatedAt: updatedTransaction.updatedAt,
+      // },
     };
 
     console.log("✅ Response prepared:", responseData.success);
@@ -684,10 +758,10 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Failed to generate QR",
-      error: error.message,
+      message: "Failed to generate dynamic QR",
+      // error: error.message,
       details: error.response?.data || null,
-      connector: "enpay",
+      // connector: "enpay",
     });
   }
 };
@@ -965,35 +1039,76 @@ export const generateDefaultQRTransaction = async (req, res) => {
   let savedTransaction = null;
 
   try {
-    if (!req.body) {
-      console.error("❌ ERROR: req.body is undefined");
+    const authHeader =
+      req.headers["authorization"] || req.headers["Authorization"];
+
+    if (!authHeader) {
+      return res
+        .status(401)
+        .json({ success: false, message: "No token provided" });
+    }
+
+    // Split 'Bearer TOKEN' → get the actual token
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Token malformed" });
+    }
+
+    // console.log("Token received:", token);
+
+    // Now you can verify JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    // console.log("Decoded payload:", decoded);
+    let user;
+    if (decoded) user = await User.findOne({ _id: decoded.userId });
+    if (!user) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid merchant token" });
+    }
+
+    const isMatch = await bcrypt.compare(decoded.password, user.password);
+    if (!isMatch) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
+    }
+
+    // console.log("Req Body:", req.body);
+
+    const { txnRefId, txnNote = "Static QR Payment" } = req.body;
+
+    if (!txnRefId) {
       return res.status(400).json({
         success: false,
-        message: "Request body is required",
-        error: "req.body is undefined",
+        message: "TxnRefId cannot be blank",
       });
     }
 
-    const { merchantId, merchantName, mid } = req.body;
+    const merchantId = user._id;
+    const merchantName =
+      user.company || user?.firstname + " " + (user?.lastname || "");
 
     // ✅ FIX 2: Log the actual values
     console.log("🟡 Parsed values:", {
       merchantId: merchantId,
       merchantName: merchantName,
-      bodyType: typeof req.body,
-      bodyKeys: Object.keys(req.body),
+      txnRefId,
+      txnNote,
     });
 
-    // const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
-
-    if (!merchantId) {
-      return res.status(400).json({
-        success: false,
-        message: "Merchant ID not found",
-      });
-    }
-
     console.log("🔵 Generate Static QR for:", merchantId);
+
+    // ✅ Check if txnRefId already exists
+    const existingTxnRefId = await Transaction.findOne({ txnRefId });
+    if (existingTxnRefId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "TxnRefId already exists" });
+    }
 
     // Get merchant connector
     const merchantConnectorAccount = await getMerchantConnectorAccount(
@@ -1004,7 +1119,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
       console.log("❌ No connector account found for merchant");
       return res.status(400).json({
         success: false,
-        message: "No payment connector configured",
+        message: "No payment connector configured. Please contact admin.",
         needsSetup: true,
       });
     }
@@ -1014,8 +1129,8 @@ export const generateDefaultQRTransaction = async (req, res) => {
       merchantConnectorAccount.connectorAccDetails.name
     );
 
-    const transactionId = `STATIC${Date.now()}`;
-    const txnRefId = transactionId;
+    const transactionId = txnRefId;
+    // const txnRefId = transactionId;
 
     // Create transaction
     const transactionData = {
@@ -1024,7 +1139,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
       merchantName,
       amount: null, // ✅ NULL for static QR (no amount)
       status: "INITIATED",
-      txnNote: "Static QR Payment",
+      txnNote: txnNote || "Static QR Payment",
       isStaticQR: true, // ✅ Mark as static QR
       isDefaultQR: true,
 
@@ -1050,7 +1165,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
       // Settlement
       commissionAmount: 0,
       netAmount: 0,
-      mid: mid || "ENPAY_MID",
+      mid: user.mid || "ENPAY_MID",
       settlementStatus: "UNSETTLED",
     };
 
@@ -1068,7 +1183,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
     const qrResult = await generateEnpayQR(
       {
         amount: 0, // ✅ Send 0 for static QR (Enpay requirement)
-        txnNote: "Static QR Payment",
+        txnNote,
         transactionId,
         merchantName,
         merchantHashId:
@@ -1104,15 +1219,15 @@ export const generateDefaultQRTransaction = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      transactionId: updatedTransaction.transactionId,
+      txnRefId: updatedTransaction.txnRefId,
       qrCode: updatedTransaction.qrCode,
       paymentUrl: updatedTransaction.paymentUrl,
       status: updatedTransaction.status,
-      isStatic: true,
-      isDefault: true,
-      connector: "enpay",
       message: "Static QR generated successfully",
       note: "Scan this QR code and enter any amount in your UPI app",
+      // isStatic: true,
+      // isDefault: true,
+      // connector: "enpay",
     });
   } catch (error) {
     console.error("❌ Generate Static QR Error:", error);
@@ -1135,9 +1250,410 @@ export const generateDefaultQRTransaction = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to generate static QR",
-      error: error.message,
+      // error: error.message,
       details: error.response?.data || null,
-      connector: "enpay",
+    });
+  }
+};
+
+function generateTxnRefId() {
+  return `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
+}
+
+function generateMerchantOrderId() {
+  return `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
+}
+
+function generateShortId(length = 10) {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+function extractIntegrationKeys(connectorAccount) {
+  console.log("🔍 Extracting integration keys from:", {
+    hasIntegrationKeys: !!connectorAccount?.integrationKeys,
+    hasConnectorAccountId:
+      !!connectorAccount?.connectorAccountId?.integrationKeys,
+    connectorAccountId: connectorAccount?.connectorAccountId?._id,
+  });
+
+  let integrationKeys = {};
+
+  // ✅ Check multiple possible locations for integration keys
+  if (
+    connectorAccount?.integrationKeys &&
+    Object.keys(connectorAccount.integrationKeys).length > 0
+  ) {
+    console.log("🎯 Found keys in connectorAccount.integrationKeys");
+    integrationKeys = connectorAccount.integrationKeys;
+  } else if (
+    connectorAccount?.connectorAccountId?.integrationKeys &&
+    Object.keys(connectorAccount.connectorAccountId.integrationKeys).length > 0
+  ) {
+    console.log(
+      "🎯 Found keys in connectorAccount.connectorAccountId.integrationKeys"
+    );
+    integrationKeys = connectorAccount.connectorAccountId.integrationKeys;
+  } else {
+    console.log("⚠️ No integration keys found in standard locations");
+  }
+
+  // ✅ Convert if it's a Map or special object
+  if (integrationKeys instanceof Map) {
+    integrationKeys = Object.fromEntries(integrationKeys);
+    console.log("🔍 Converted Map to Object");
+  } else if (typeof integrationKeys === "string") {
+    try {
+      integrationKeys = JSON.parse(integrationKeys);
+      console.log("🔍 Parsed JSON string to Object");
+    } catch (e) {
+      console.error("❌ Failed to parse integrationKeys string:", e);
+    }
+  }
+
+  console.log("🎯 Extracted Keys:", Object.keys(integrationKeys));
+  return integrationKeys;
+}
+
+const generateEnpayPayment = async ({
+  txnRefId,
+  amount,
+  paymentMethod,
+  paymentOption,
+  connectorAccount,
+}) => {
+  try {
+    console.log("🔹 Generating Enpay Payment");
+
+    // 1. Get Keys (Calculated in main function)
+    const keys = connectorAccount.extractedKeys || {};
+
+    const merchantKey = keys["X-Merchant-Key"];
+    const merchantSecret = keys["X-Merchant-Secret"];
+    const merchantHashId = keys["merchantHashId"];
+    const merchantVpa = keys["merchantVpa"];
+
+    // 2. Validate Keys
+    if (!merchantKey || !merchantSecret || !merchantHashId || !merchantVpa) {
+      console.error("❌ Missing Enpay Credentials. Found:", Object.keys(keys));
+      throw new Error("No integration keys found for Enpay connector");
+    }
+
+    // 3. Prepare IDs
+    // const txnRefId = generateTxnRefId();
+    const merchantOrderId = generateMerchantOrderId();
+    const enpayTxnId = `ENP${Date.now()}`;
+
+    // 4. Construct Payload (MATCHING POSTMAN EXACTLY)
+    const requestData = {
+      amount: String(amount.toFixed(2)), // Ensure string format "600.00"
+      merchantHashId: merchantHashId,
+      merchantOrderId: merchantOrderId,
+      merchantTrnId: txnRefId,
+      // ✅ FIXED: Use the EXACT VPA from your working Postman example
+      merchantVpa: merchantVpa, // HARDCODE THE WORKING VPA
+      returnURL: `${API_BASE_URL}/api/payment/return?transactionId=${txnRefId}`,
+      successURL: `${API_BASE_URL}/api/payment/success?transactionId=${txnRefId}`,
+      txnNote: `Payment for Order`,
+    };
+
+    console.log("📤 Enpay Request Payload:", requestData);
+
+    // 5. API Call
+    const enpayResponse = await axios.post(
+      "https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway/initiateCollectRequest",
+      requestData,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Merchant-Key": merchantKey,
+          "X-Merchant-Secret": merchantSecret,
+          Accept: "application/json",
+        },
+        timeout: 30000,
+      }
+    );
+
+    console.log("✅ Enpay API Response:", enpayResponse.data);
+
+    // 6. Extract Link
+    let paymentLink = "";
+    if (enpayResponse.data && enpayResponse.data.details) {
+      paymentLink = enpayResponse.data.details;
+    } else if (enpayResponse.data && enpayResponse.data.paymentUrl) {
+      paymentLink = enpayResponse.data.paymentUrl;
+    } else {
+      throw new Error("Enpay API response missing payment URL/details");
+    }
+
+    return {
+      paymentLink: paymentLink,
+      merchantOrderId: merchantOrderId,
+      txnRefId: txnRefId,
+      gatewayTxnId: enpayTxnId,
+      enpayTxnId: enpayTxnId,
+    };
+  } catch (error) {
+    console.error("❌ Enpay Error:", error.message);
+    if (error.response) {
+      console.error("Enpay API Response Data:", error.response.data);
+      throw new Error(
+        `Enpay Provider Error: ${
+          error.response.data?.message || error.response.statusText
+        }`
+      );
+    }
+    throw error;
+  }
+};
+
+export const generatePaymentLinkTransaction = async (req, res) => {
+  const startTime = Date.now();
+  console.log("🚀 generatePaymentLink STARTED", req.body);
+
+  try {
+    const authHeader =
+      req.headers["authorization"] || req.headers["Authorization"];
+
+    if (!authHeader) {
+      return res
+        .status(401)
+        .json({ success: false, message: "No token provided" });
+    }
+
+    // Split 'Bearer TOKEN' → get the actual token
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Token malformed" });
+    }
+
+    // console.log("Token received:", token);
+
+    // Now you can verify JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    // console.log("Decoded payload:", decoded);
+    let user;
+    if (decoded) user = await User.findOne({ _id: decoded.userId });
+    if (!user) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid merchant token" });
+    }
+
+    const isMatch = await bcrypt.compare(decoded.password, user.password);
+    if (!isMatch) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
+    }
+
+    console.log("Req Body:", req.body);
+    const {
+      txnRefId,
+      amount,
+      currency = "INR",
+      paymentMethod,
+      paymentOption,
+    } = req.body;
+
+    // Validation
+    if (!txnRefId) {
+      return res.status(400).json({
+        success: false,
+        message: "TxnRefId cannot be blank",
+      });
+    }
+
+    if (!amount) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount cannot be blank",
+      });
+    }
+
+    const existingTxnRefId = await Transaction.findOne({ txnRefId });
+    if (existingTxnRefId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "txnRefId already exists" });
+    }
+
+    const merchantId = user._id;
+    const merchantName =
+      user.company || user?.firstname + " " + (user?.lastname || "");
+
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid amount. Amount should be a valid number",
+      });
+    }
+    if (amountNum < 500) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount should be greater than 500",
+      });
+    }
+
+    // Find merchant
+    const merchant = await mongoose.connection.db
+      .collection("users")
+      .findOne({ _id: new mongoose.Types.ObjectId(merchantId) });
+
+    // if (!merchant) {
+    //   return res.status(404).json({
+    //     success: false,
+    //     message: "Merchant not found",
+    //   });
+    // }
+
+    // Find Active Connector Account
+    const activeAccount = await mongoose.connection.db
+      .collection("merchantconnectoraccounts")
+      .findOne({
+        merchantId: new mongoose.Types.ObjectId(merchantId),
+        isPrimary: true,
+        status: "Active",
+      });
+
+    const connector = await mongoose.connection.db
+      .collection("connectors")
+      .findOne({ _id: activeAccount.connectorId });
+
+    const connectorAccount = await mongoose.connection.db
+      .collection("connectoraccounts")
+      .findOne({ _id: activeAccount.connectorAccountId });
+
+    activeAccount.connectorId = connector;
+    activeAccount.connectorAccountId = connectorAccount;
+
+    if (!activeAccount) {
+      return res.status(404).json({
+        success: false,
+        message: "No payment connector configured. Please contact admin.",
+        needsSetup: true,
+      });
+    }
+
+    const connectorName = activeAccount.connectorId?.name;
+    console.log("🎯 Using Connector:", connectorName);
+
+    // Extract keys using helper function
+    const integrationKeys = extractIntegrationKeys(activeAccount);
+    console.log("🔑 Integration Keys Extracted:", {
+      keysCount: Object.keys(integrationKeys).length,
+      availableKeys: Object.keys(integrationKeys),
+    });
+    const accountWithKeys = {
+      ...activeAccount, // Convert mongoose document to plain object
+      extractedKeys: integrationKeys,
+    };
+    // Attach extracted keys to the account object for the generator functions
+    activeAccount.extractedKeys = integrationKeys;
+
+    let paymentResult;
+
+    if (connectorName === "Cashfree") {
+      paymentResult = await generateCashfreePayment({
+        merchant,
+        amount: amountNum,
+        paymentMethod,
+        paymentOption,
+        connectorAccount: accountWithKeys,
+      });
+    } else if (connectorName === "Enpay") {
+      paymentResult = await generateEnpayPayment({
+        txnRefId,
+        amount: amountNum,
+        paymentMethod,
+        paymentOption,
+        connectorAccount: accountWithKeys,
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Unsupported connector: " + connectorName,
+      });
+    }
+
+    // Create transaction record
+    const transactionData = {
+      transactionId: generateTransactionId(),
+      merchantOrderId: paymentResult.merchantOrderId,
+      merchantHashId: integrationKeys.merchantHashId,
+      // merchantHashId: merchant.mid,
+      // merchantVpa: `${merchant.mid?.toLowerCase()}@skypal`,
+      merchantVpa: integrationKeys.merchantVpa,
+      txnRefId: paymentResult.txnRefId,
+      shortLinkId: generateShortId(),
+
+      merchantId: merchant._id,
+      merchantName: merchantName,
+      // merchant.company || `${merchant.firstname} ${merchant.lastname}`,
+      mid: merchant.mid,
+
+      amount: amountNum,
+      currency: currency,
+      status: "INITIATED",
+      paymentMethod: paymentMethod,
+      paymentOption: paymentOption,
+      paymentUrl: paymentResult.paymentLink,
+
+      connectorId: activeAccount.connectorId?._id,
+      connectorAccountId: activeAccount.connectorAccountId?._id,
+      connectorName: connectorName,
+      terminalId: activeAccount.terminalId || "N/A",
+
+      gatewayTxnId: paymentResult.gatewayTxnId,
+      gatewayPaymentLink: paymentResult.paymentLink,
+      gatewayOrderId: paymentResult.gatewayOrderId,
+
+      customerName: `${merchant.firstname} ${merchant.lastname}`,
+      customerVpa: `${merchant.mid?.toLowerCase()}@skypal`,
+      customerContact: merchant.contact || "",
+      customerEmail: merchant.email || "",
+
+      txnNote: `Payment for ${merchant.company || merchant.firstname}`,
+      source: connectorName.toLowerCase(),
+    };
+
+    if (connectorName === "Enpay") {
+      transactionData.enpayTxnId = paymentResult.enpayTxnId;
+    }
+
+    // Save transaction
+    const newTransaction = new Transaction(transactionData);
+    await newTransaction.save();
+
+    console.log(
+      `✅ ${connectorName} payment link generated in ${
+        Date.now() - startTime
+      }ms`
+    );
+
+    res.json({
+      success: true,
+      paymentLink: paymentResult.paymentLink,
+      transactionId: transactionData.transactionId,
+      txnRefId: transactionData.txnRefId,
+      // connectorName,
+      message: `${connectorName} payment link generated successfully`,
+    });
+  } catch (error) {
+    console.error(`❌ Payment link generation failed:`, error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate payment link",
+      details: error.response?.data || null,
     });
   }
 };
