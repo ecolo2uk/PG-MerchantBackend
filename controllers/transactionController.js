@@ -14,6 +14,23 @@ const generateEnpayTransactionId = () =>
 
 const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:5001";
 
+const todayFilter = () => {
+  const now = new Date();
+
+  let start, end;
+  start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+
+  return {
+    createdAt: {
+      $gte: start,
+      $lte: end,
+    },
+  };
+};
+
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
     console.log("🟡 Fetching merchant connector account for:", merchantId);
@@ -121,7 +138,7 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
     const payload = {
       merchantHashId: integrationKeys.merchantHashId,
       txnRefId: transactionData.transactionId,
-      txnNote: transactionData.txnNote || "Payment",
+      txnNote: transactionData.txnNote || "",
     };
     let apiUrl;
     // Add amount only if provided (for dynamic QR)
@@ -210,7 +227,7 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
 export const generateDynamicQR = async (req, res) => {
   console.log("🚀 ========== GENERATE DYNAMIC QR STARTED ==========");
   console.log("🔍 Request Body:", req.body);
-  console.log("🔍 Request Headers:", req.headers["content-type"]);
+  // console.log("🔍 Request Headers:", req.headers["content-type"]);
 
   let savedTransaction = null;
 
@@ -225,7 +242,7 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    const { amount, txnNote = "Payment for Order" } = req.body;
+    const { amount, txnNote = "" } = req.body;
 
     // ✅ FIX 2: Log the actual values
     console.log("🟡 Parsed values:", {
@@ -243,6 +260,30 @@ export const generateDynamicQR = async (req, res) => {
         success: false,
         message: "Merchant ID not found",
       });
+    }
+
+    let user;
+    if (merchantId) user = await User.findOne({ _id: merchantId });
+
+    const dateFilter = todayFilter();
+    // console.log(dateFilter, user._id, user.transactionLimit);
+    const transactionLimit = await Transaction.find({
+      merchantId,
+      ...dateFilter,
+    });
+
+    // console.log(transactionLimit.length, "transactionLimit");
+
+    const used = Number(transactionLimit?.length || 0);
+    const limit = Number(user?.transactionLimit || 0);
+
+    if (user.transactionLimit) {
+      if (used >= limit) {
+        return res.status(403).json({
+          success: false,
+          message: "Transaction limit has been exceeded for today!",
+        });
+      }
     }
 
     console.log("🟡 Generate Dynamic QR Request:", {
@@ -459,7 +500,7 @@ export const generateDynamicQR = async (req, res) => {
 
 export const generateDynamicQRTransaction = async (req, res) => {
   console.log("Body keys:", Object.keys(req.body));
-  console.log("🔍 Request Headers:", req.headers);
+  // console.log("🔍 Request Headers:", req.headers);
   let savedTransaction = null;
 
   try {
@@ -499,6 +540,27 @@ export const generateDynamicQRTransaction = async (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
+    }
+
+    const dateFilter = todayFilter();
+    // console.log(dateFilter, user._id, user.transactionLimit);
+    const transactionLimit = await Transaction.find({
+      merchantId: user._id,
+      ...dateFilter,
+    });
+
+    // console.log(transactionLimit.length, "transactionLimit");
+
+    const used = Number(transactionLimit?.length || 0);
+    const limit = Number(user?.transactionLimit || 0);
+
+    if (user.transactionLimit) {
+      if (used >= limit) {
+        return res.status(403).json({
+          success: false,
+          message: "Transaction limit has been exceeded for today!",
+        });
+      }
     }
 
     // console.log("Req Body:", !req.body);
@@ -850,6 +912,7 @@ export const getTransactions = async (req, res) => {
       merchantName: txn.merchantName,
       customerName: txn.customerName,
       customerVpa: txn.customerVpa,
+      customerEmail: txn.customerEmail,
       customerContact: txn.customerContact,
       commissionAmount: txn.commissionAmount || 0,
       netAmount: txn.netAmount || txn.amount || 0,
@@ -861,6 +924,55 @@ export const getTransactions = async (req, res) => {
       merchantHashId: txn.merchantHashId,
       enpayInitiationStatus: txn.enpayInitiationStatus,
       isEnpayTransaction: txn.isEnpayTransaction,
+      webhookStatus: txn.webhookStatus,
+      merchantOrderId: txn.merchantOrderId,
+      gatewayOrderId: txn.gatewayOrderId,
+    }));
+
+    res.json(formattedTransactions);
+  } catch (error) {
+    console.error("❌ Error fetching transactions:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch transactions",
+      error: error.message,
+    });
+  }
+};
+export const getSalesTransactions = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    console.log("🟡 Fetching transactions for merchant:", merchantId);
+
+    // Handle both string and ObjectId merchantId
+    let query = { merchantId: merchantId };
+
+    try {
+      query.merchantId = new mongoose.Types.ObjectId(merchantId);
+    } catch (error) {
+      console.log("⚠️ Using string merchantId for query");
+    }
+
+    const transactions = await Transaction.find(query)
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    console.log(`✅ Found ${transactions.length} transactions`);
+
+    // Format response
+    const formattedTransactions = transactions.map((txn) => ({
+      _id: txn._id,
+      transactionId: txn.transactionId,
+      transactionRefId: txn.txnRefId || txn.transactionId,
+      amount: txn.amount,
+      netAmount: txn.netAmount || txn.amount || 0,
+      paymentMethod: txn.paymentMethod || "",
+      customerName: txn.customerName,
+      customerVpa: txn.customerVpa,
+      customerEmail: txn.customerEmail,
+      customerContact: txn.customerContact,
+      createdAt: txn.createdAt,
     }));
 
     res.json(formattedTransactions);
@@ -883,6 +995,30 @@ export const generateDefaultQR = async (req, res) => {
   try {
     const merchantId = req.user?.id || req.user?._id;
     const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
+
+    let user;
+    if (merchantId) user = await User.findOne({ _id: merchantId });
+
+    const dateFilter = todayFilter();
+    // console.log(dateFilter, user._id, user.transactionLimit);
+    const transactionLimit = await Transaction.find({
+      merchantId,
+      ...dateFilter,
+    });
+
+    // console.log(transactionLimit.length, "transactionLimit");
+
+    const used = Number(transactionLimit?.length || 0);
+    const limit = Number(user?.transactionLimit || 0);
+
+    if (user.transactionLimit) {
+      if (used >= limit) {
+        return res.status(403).json({
+          success: false,
+          message: "Transaction limit has been exceeded for today!",
+        });
+      }
+    }
 
     console.log("🔵 Generate Static QR for:", merchantId);
 
@@ -1069,7 +1205,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Invalid merchant token" });
     }
-
+    console.log(user);
     const isMatch = await bcrypt.compare(decoded.password, user.password);
     if (!isMatch) {
       return res
@@ -1077,7 +1213,26 @@ export const generateDefaultQRTransaction = async (req, res) => {
         .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
     }
 
-    // console.log("Req Body:", req.body);
+    const dateFilter = todayFilter();
+    // console.log(dateFilter, user._id, user.transactionLimit);
+    const transactionLimit = await Transaction.find({
+      merchantId: user._id,
+      ...dateFilter,
+    });
+
+    // console.log(transactionLimit.length, "transactionLimit");
+
+    const used = Number(transactionLimit?.length || 0);
+    const limit = Number(user?.transactionLimit || 0);
+
+    if (user.transactionLimit) {
+      if (used >= limit) {
+        return res.status(403).json({
+          success: false,
+          message: "Transaction limit has been exceeded for today!",
+        });
+      }
+    }
 
     const { txnRefId, txnNote = "Static QR Payment" } = req.body;
 
@@ -1455,7 +1610,29 @@ export const generatePaymentLinkTransaction = async (req, res) => {
         .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
     }
 
-    console.log("Req Body:", req.body);
+    const dateFilter = todayFilter();
+    // console.log(dateFilter, user._id, user.transactionLimit);
+    const transactionLimit = await Transaction.find({
+      merchantId: user._id,
+      ...dateFilter,
+    });
+
+    // console.log(transactionLimit.length, "transactionLimit");
+
+    const used = Number(transactionLimit?.length || 0);
+    const limit = Number(user?.transactionLimit || 0);
+
+    if (user.transactionLimit) {
+      if (used >= limit) {
+        return res.status(403).json({
+          success: false,
+          message: "Transaction limit has been exceeded for today!",
+        });
+      }
+    }
+
+    // console.log("Req Body:", req.body);
+
     const {
       txnRefId,
       amount,

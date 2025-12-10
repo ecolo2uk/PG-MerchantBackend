@@ -34,26 +34,6 @@ export const loginMerchant = async (req, res) => {
       return res.status(400).json({ message: "Invalid email or password" }); // Use a generic message for security
     }
 
-    // const payload = {
-    //   userId: user._id,
-    //   password: password,
-    // };
-    // // console.log(headerConcat);
-    // const headerKey = jwt.sign(
-    //   payload,
-    //   process.env.JWT_MERCHANT_SECRET || "your_merchant_secret_key" // Use environment variable for secret
-    //   // { expiresIn: "365d" }
-    // );
-    // console.log(headerKey, "HEADERKEY");
-    // await User.updateOne(
-    //   { _id: user._id },
-    //   {
-    //     $set: {
-    //       headerKey: headerKey,
-    //     },
-    //   }
-    // );
-
     // If all checks pass, generate a JWT token
     const token = jwt.sign(
       { id: user._id, role: user.role, mid: user.mid }, // Include mid in token if needed
