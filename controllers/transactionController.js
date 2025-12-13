@@ -44,26 +44,36 @@ const formatDateForExcel = (date) => {
 };
 
 const isJWTFormat = (token) => {
-  // 1️⃣ Token must have exactly 2 dots → 3 parts
+  if (typeof token !== "string") return false;
+
   const parts = token.split(".");
   if (parts.length !== 3) return false;
 
-  // 2️⃣ Base64URL pattern (letters, numbers, - and _ only, no padding)
   const base64UrlRegex = /^[A-Za-z0-9-_]+$/;
 
-  // 3️⃣ Check each part matches Base64URL strictly
-  for (const part of parts) {
+  // ✅ Validate HEADER & PAYLOAD only
+  for (let i = 0; i < 2; i++) {
+    const part = parts[i];
+
     if (!base64UrlRegex.test(part)) return false;
-    // Optional: decode to JSON to make sure header/payload are valid JSON
+
     try {
-      const decoded = JSON.parse(Buffer.from(part, "base64").toString("utf8"));
+      // Convert Base64URL → Base64
+      const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+      const decoded = JSON.parse(
+        Buffer.from(base64, "base64").toString("utf8")
+      );
+
       if (typeof decoded !== "object") return false;
-    } catch (err) {
+    } catch {
       return false;
     }
   }
 
-  return true; // Passed all checks
+  // ✅ Signature: ONLY Base64URL check (NO JSON parse)
+  if (!base64UrlRegex.test(parts[2])) return false;
+
+  return true;
 };
 
 // Usage
@@ -570,7 +580,21 @@ export const generateDynamicQRTransaction = async (req, res) => {
     }
 
     // Now you can verify JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    // const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+
+    let decoded;
+
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        message:
+          err.name === "TokenExpiredError"
+            ? "Token expired"
+            : "Invalid authorization token",
+      });
+    }
     // console.log("Decoded payload:", decoded);
     let user;
     if (decoded) user = await User.findOne({ _id: decoded.userId });
@@ -1341,7 +1365,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
         .status(401)
         .json({ success: false, message: "No token provided" });
     }
-    console.log(authHeader);
+    // console.log(authHeader);
 
     // Split 'Bearer TOKEN' → get the actual token
     const token = authHeader.split(" ")[1];
@@ -1363,7 +1387,22 @@ export const generateDefaultQRTransaction = async (req, res) => {
     // console.log("Token received:", token);
 
     // Now you can verify JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    // const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+
+    let decoded;
+
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        message:
+          err.name === "TokenExpiredError"
+            ? "Token expired"
+            : "Invalid authorization token",
+      });
+    }
+
     // console.log("Decoded payload:", decoded);
     let user;
     if (decoded) user = await User.findOne({ _id: decoded.userId });
@@ -1768,7 +1807,20 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     }
 
     // Now you can verify JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    // const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    let decoded;
+
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        message:
+          err.name === "TokenExpiredError"
+            ? "Token expired"
+            : "Invalid authorization token",
+      });
+    }
     // console.log("Decoded payload:", decoded);
     let user;
     if (decoded) user = await User.findOne({ _id: decoded.userId });
