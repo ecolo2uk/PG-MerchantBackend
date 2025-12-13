@@ -601,7 +601,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
     if (!user) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid merchant token" });
+        .json({ success: false, message: "Merchnat Not found" });
     }
 
     const isMatch = await bcrypt.compare(decoded.password, user.password);
@@ -794,18 +794,36 @@ export const generateDynamicQRTransaction = async (req, res) => {
       merchantConnectorAccount.connectorAccDetails
     );
 
-    const qrResult = await generateEnpayQR(
-      {
-        amount: amount ? parseFloat(amount) : null,
-        txnNote,
-        transactionId,
-        merchantName,
-        merchantHashId:
-          merchantConnectorAccount.connectorAccDetails.integrationKeys
-            ?.merchantHashId,
-      },
-      merchantConnectorAccount.connectorAccDetails.integrationKeys
-    );
+    let qrResult;
+    try {
+      qrResult = await generateEnpayQR(
+        {
+          amount: amount ? parseFloat(amount) : null,
+          txnNote,
+          transactionId,
+          merchantName,
+          merchantHashId:
+            merchantConnectorAccount.connectorAccDetails.integrationKeys
+              ?.merchantHashId,
+        },
+        merchantConnectorAccount.connectorAccDetails.integrationKeys
+      );
+    } catch (error) {
+      console.log(error, "Duplication");
+      if (error.message === "Duplicate transaction reference Id.") {
+        return res.status(400).json({
+          success: false,
+          message: "txnRefId already exists.",
+          // message: "Duplicate transaction reference Id.",
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate Enpay payment link",
+        details: error.response?.data || null,
+      });
+    }
 
     console.log("✅ QR Generation Result:", {
       success: qrResult.success,
@@ -1008,6 +1026,7 @@ export const getTransactions = async (req, res) => {
     });
   }
 };
+
 export const getSalesTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
@@ -1409,7 +1428,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
     if (!user) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid merchant token" });
+        .json({ success: false, message: "Merchnat Not found" });
     }
     console.log(user);
     const isMatch = await bcrypt.compare(decoded.password, user.password);
@@ -1541,18 +1560,36 @@ export const generateDefaultQRTransaction = async (req, res) => {
     // ✅ FIX: Generate STATIC QR (no amount) for Enpay API
     console.log("🟡 Calling Enpay STATIC QR API...");
 
-    const qrResult = await generateEnpayQR(
-      {
-        amount: 0, // ✅ Send 0 for static QR (Enpay requirement)
-        txnNote,
-        transactionId,
-        merchantName,
-        merchantHashId:
-          merchantConnectorAccount.connectorAccDetails.integrationKeys
-            ?.merchantHashId,
-      },
-      merchantConnectorAccount.connectorAccDetails.integrationKeys
-    );
+    let qrResult;
+    try {
+      qrResult = await generateEnpayQR(
+        {
+          amount: 0, // ✅ Send 0 for static QR (Enpay requirement)
+          txnNote,
+          transactionId,
+          merchantName,
+          merchantHashId:
+            merchantConnectorAccount.connectorAccDetails.integrationKeys
+              ?.merchantHashId,
+        },
+        merchantConnectorAccount.connectorAccDetails.integrationKeys
+      );
+    } catch (error) {
+      console.log(error, "Duplication");
+      if (error.message === "Duplicate transaction reference Id.") {
+        return res.status(400).json({
+          success: false,
+          message: "txnRefId already exists.",
+          // message: "Duplicate transaction reference Id.",
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate Enpay payment link",
+        details: error.response?.data || null,
+      });
+    }
 
     console.log("✅ Static QR Generation Result:", {
       success: qrResult.success,
@@ -1763,11 +1800,12 @@ const generateEnpayPayment = async ({
     console.error("❌ Enpay Error:", error.message);
     if (error.response) {
       console.error("Enpay API Response Data:", error.response.data);
-      throw new Error(
-        `Enpay Provider Error: ${
-          error.response.data?.message || error.response.statusText
-        }`
-      );
+      throw new Error(error.response.data?.message);
+      // throw new Error(
+      //   `Enpay Provider Error: ${
+      //     error.response.data?.message || error.response.statusText
+      //   }`
+      // );
     }
     throw error;
   }
@@ -1827,7 +1865,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     if (!user) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid merchant token" });
+        .json({ success: false, message: "Merchnat Not found" });
     }
 
     const isMatch = await bcrypt.compare(decoded.password, user.password);
@@ -1975,17 +2013,42 @@ export const generatePaymentLinkTransaction = async (req, res) => {
         connectorAccount: accountWithKeys,
       });
     } else if (connectorName === "Enpay") {
-      paymentResult = await generateEnpayPayment({
-        txnRefId,
-        amount: amountNum,
-        paymentMethod,
-        paymentOption,
-        connectorAccount: accountWithKeys,
-      });
+      try {
+        paymentResult = await generateEnpayPayment({
+          txnRefId,
+          amount: amountNum,
+          paymentMethod,
+          paymentOption,
+          connectorAccount: accountWithKeys,
+        });
+      } catch (error) {
+        // console.error(`❌ Enpay Payment link generation failed:`, error);
+
+        if (error.message === "Duplicate transaction reference Id.") {
+          return res.status(400).json({
+            success: false,
+            message: "txnRefId already exists.",
+            // message: "Duplicate transaction reference Id.",
+          });
+        }
+
+        return res.status(500).json({
+          success: false,
+          message: "Failed to generate Enpay payment link",
+          details: error.response?.data || null,
+        });
+      }
     } else {
       return res.status(400).json({
         success: false,
         message: "Unsupported connector: " + connectorName,
+      });
+    }
+
+    if (!paymentResult) {
+      return res.status(500).json({
+        success: false,
+        message: "Payment gateway did not return a valid response",
       });
     }
 
