@@ -2,6 +2,7 @@
 import Transaction from "../models/Transaction.js";
 import mongoose from "mongoose";
 import axios from "axios";
+import xlsx from "xlsx";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
@@ -30,6 +31,43 @@ const todayFilter = () => {
     },
   };
 };
+
+const formatDateForExcel = (date) => {
+  return new Date(date).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+const isJWTFormat = (token) => {
+  // 1️⃣ Token must have exactly 2 dots → 3 parts
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+
+  // 2️⃣ Base64URL pattern (letters, numbers, - and _ only, no padding)
+  const base64UrlRegex = /^[A-Za-z0-9-_]+$/;
+
+  // 3️⃣ Check each part matches Base64URL strictly
+  for (const part of parts) {
+    if (!base64UrlRegex.test(part)) return false;
+    // Optional: decode to JSON to make sure header/payload are valid JSON
+    try {
+      const decoded = JSON.parse(Buffer.from(part, "base64").toString("utf8"));
+      if (typeof decoded !== "object") return false;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  return true; // Passed all checks
+};
+
+// Usage
+// console.log(isJWTFormat("your.token.here")); // true or false
 
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
@@ -226,7 +264,7 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
 // ✅ 3. MAIN DYNAMIC QR FUNCTION - COMPLETELY FIXED
 export const generateDynamicQR = async (req, res) => {
   console.log("🚀 ========== GENERATE DYNAMIC QR STARTED ==========");
-  console.log("🔍 Request Body:", req.body);
+  // console.log("🔍 Request Body:", req.body);
   // console.log("🔍 Request Headers:", req.headers["content-type"]);
 
   let savedTransaction = null;
@@ -371,7 +409,7 @@ export const generateDynamicQR = async (req, res) => {
       // Settlement Info
       commissionAmount: 0,
       netAmount: amount ? parseFloat(amount) : 0,
-      mid: req.user.mid || "ENPAY_MID",
+      mid: req.user.mid || "",
       settlementStatus: "UNSETTLED",
       vendorRefId: `VENDOR${Date.now()}`,
     };
@@ -499,7 +537,7 @@ export const generateDynamicQR = async (req, res) => {
 };
 
 export const generateDynamicQRTransaction = async (req, res) => {
-  console.log("Body keys:", Object.keys(req.body));
+  // console.log("Body keys:", Object.keys(req.body));
   // console.log("🔍 Request Headers:", req.headers);
   let savedTransaction = null;
 
@@ -521,8 +559,15 @@ export const generateDynamicQRTransaction = async (req, res) => {
         .status(401)
         .json({ success: false, message: "Token malformed" });
     }
-
     // console.log("Token received:", token);
+
+    // ✅ Check if token is in valid JWT format
+    if (!isJWTFormat(token)) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid authorization token format",
+      });
+    }
 
     // Now you can verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
@@ -701,7 +746,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
       // Settlement Info
       commissionAmount: 0,
       netAmount: amount ? parseFloat(amount) : 0,
-      mid: user.mid || "ENPAY_MID",
+      mid: user.mid || "",
       settlementStatus: "UNSETTLED",
       vendorRefId: `VENDOR${Date.now()}`,
     };
@@ -906,7 +951,7 @@ export const getTransactions = async (req, res) => {
       transactionRefId: txn.txnRefId || txn.transactionId,
       amount: txn.amount,
       status: txn.status,
-      settlementStatus: txn.settlementStatus || "UNSETTLED",
+      settlementStatus: txn.settlementStatus || "",
       createdAt: txn.createdAt,
       updatedAt: txn.updatedAt,
       merchantName: txn.merchantName,
@@ -916,7 +961,7 @@ export const getTransactions = async (req, res) => {
       customerContact: txn.customerContact,
       commissionAmount: txn.commissionAmount || 0,
       netAmount: txn.netAmount || txn.amount || 0,
-      paymentMethod: txn.paymentMethod || "UPI",
+      paymentMethod: txn.paymentMethod || "",
       qrCode: txn.qrCode,
       paymentUrl: txn.paymentUrl,
       connectorUsed: txn.connectorUsed,
@@ -943,9 +988,26 @@ export const getSalesTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
     console.log("🟡 Fetching transactions for merchant:", merchantId);
+    // console.log(req.query);
+    const { transactionRefId, fromDate, toDate } = req.query;
 
     // Handle both string and ObjectId merchantId
     let query = { merchantId: merchantId };
+
+    if (transactionRefId) {
+      query.txnRefId = new RegExp(transactionRefId, "i");
+    }
+
+    if (fromDate && toDate) {
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+      to.setHours(23, 59, 59, 999); // include the entire end day
+
+      if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+        query.createdAt = { $gte: from, $lte: to };
+      }
+    }
+    // console.log(query, "QUERY");
 
     try {
       query.merchantId = new mongoose.Types.ObjectId(merchantId);
@@ -983,6 +1045,102 @@ export const getSalesTransactions = async (req, res) => {
       message: "Failed to fetch transactions",
       error: error.message,
     });
+  }
+};
+
+export const exportSalesToExcel = async (req, res) => {
+  try {
+    const merchantId = req.user.id;
+    console.log("🟡 Fetching transactions for merchant:", merchantId);
+    // console.log(req.query);
+    const { transactionRefId, fromDate, toDate } = req.query;
+
+    // Handle both string and ObjectId merchantId
+    let query = { merchantId: merchantId };
+
+    if (transactionRefId) {
+      query.txnRefId = new RegExp(transactionRefId, "i");
+    }
+
+    if (fromDate && toDate) {
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+      to.setHours(23, 59, 59, 999);
+
+      if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+        query.createdAt = { $gte: from, $lte: to };
+      }
+    }
+    // console.log(query, "QUERY");
+
+    try {
+      query.merchantId = new mongoose.Types.ObjectId(merchantId);
+    } catch (error) {
+      console.log("⚠️ Using string merchantId for query");
+    }
+
+    const transactions = await Transaction.find(query)
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    console.log(`✅ Found ${transactions.length} transactions`);
+
+    // DEFINE HEADERS
+    const headers = [
+      "Sr No.",
+      "Transaction Date",
+      "Transaction Ref ID",
+      "Amount",
+      "Net Amount",
+      "Payment Method",
+      "Customer Name",
+      "Customer Email",
+      "Customer VPA",
+      "Customer Contact",
+    ];
+
+    // PREPARE ROWS
+    let excelRows = transactions.map((t, i) => [
+      i + 1,
+      t.createdAt ? formatDateForExcel(t.createdAt) : "",
+      t.txnRefId || "",
+      t.amount || "",
+      t.netAmount || "",
+      t.paymentMethod || "",
+      t.customerName || "",
+      t.customerEmail || "",
+      t.customerVpa || "",
+      t.customerContact || "",
+    ]);
+    // Final sheet data (headers + rows)
+    const finalSheetData = [headers, ...excelRows];
+
+    // CREATE WORKBOOK
+    const worksheet = xlsx.utils.aoa_to_sheet(finalSheetData);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, "Sales");
+
+    // Random 10-digit number
+    const randomNumber = Math.floor(1000000000 + Math.random() * 9000000000);
+    const fileName = `Sales_${randomNumber}.xlsx`;
+
+    // Write to buffer
+    const excelBuffer = xlsx.write(workbook, {
+      type: "buffer",
+      bookType: "xlsx",
+    });
+
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+
+    res.send(excelBuffer);
+  } catch (error) {
+    console.error("DOWNLOAD SALES EXCEL ERROR:", error);
+    res.status(500).json({ message: "Failed to download Excel" });
   }
 };
 
@@ -1077,7 +1235,7 @@ export const generateDefaultQR = async (req, res) => {
       // Settlement
       commissionAmount: 0,
       netAmount: 0,
-      mid: req.user?.mid || "ENPAY_MID",
+      mid: req.user?.mid || "",
       settlementStatus: "UNSETTLED",
     };
 
@@ -1171,7 +1329,7 @@ export const generateDefaultQR = async (req, res) => {
 
 export const generateDefaultQRTransaction = async (req, res) => {
   console.log("🔵 ========== GENERATE DEFAULT/STATIC QR STARTED ==========");
-  console.log(req.body);
+  // console.log(req.body);
   let savedTransaction = null;
 
   try {
@@ -1183,6 +1341,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
         .status(401)
         .json({ success: false, message: "No token provided" });
     }
+    console.log(authHeader);
 
     // Split 'Bearer TOKEN' → get the actual token
     const token = authHeader.split(" ")[1];
@@ -1191,6 +1350,14 @@ export const generateDefaultQRTransaction = async (req, res) => {
       return res
         .status(401)
         .json({ success: false, message: "Token malformed" });
+    }
+
+    // ✅ Check if token is in valid JWT format
+    if (!isJWTFormat(token)) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid authorization token format",
+      });
     }
 
     // console.log("Token received:", token);
@@ -1294,7 +1461,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
       merchantName,
       amount: null, // ✅ NULL for static QR (no amount)
       status: "INITIATED",
-      txnNote: txnNote || "Static QR Payment",
+      txnNote: txnNote || "",
       isStaticQR: true, // ✅ Mark as static QR
       isDefaultQR: true,
 
@@ -1320,7 +1487,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
       // Settlement
       commissionAmount: 0,
       netAmount: 0,
-      mid: user.mid || "ENPAY_MID",
+      mid: user.mid || "",
       settlementStatus: "UNSETTLED",
     };
 
@@ -1592,6 +1759,14 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     // console.log("Token received:", token);
 
+    // ✅ Check if token is in valid JWT format
+    if (!isJWTFormat(token)) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid authorization token format",
+      });
+    }
+
     // Now you can verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
     // console.log("Decoded payload:", decoded);
@@ -1795,7 +1970,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       gatewayOrderId: paymentResult.gatewayOrderId,
 
       customerName: `${merchant.firstname} ${merchant.lastname}`,
-      customerVpa: `${merchant.mid?.toLowerCase()}@skypal`,
+      customerVpa: ``,
       customerContact: merchant.contact || "",
       customerEmail: merchant.email || "",
 
