@@ -60,10 +60,10 @@ const getDateRange = (filter, startDate, endDate) => {
       return {};
   }
 
-  console.log(`📅 Date Range for ${filter}:`, {
-    start: start.toISOString(),
-    end: end.toISOString(),
-  });
+  // console.log(`📅 Date Range for ${filter}:`, {
+  //   start: start.toISOString(),
+  //   end: end.toISOString(),
+  // });
 
   return {
     createdAt: {
@@ -78,12 +78,12 @@ export const getMerchantAnalytics = async (req, res) => {
     // console.log("🟡Analytics Request:", req.query);
     const { merchantId, timeFilter = "today", startDate, endDate } = req.query;
 
-    console.log("🟡 Merchant Analytics Request:", {
-      merchantId,
-      timeFilter,
-      startDate,
-      endDate,
-    });
+    // console.log("🟡 Merchant Analytics Request:", {
+    //   merchantId,
+    //   timeFilter,
+    //   startDate,
+    //   endDate,
+    // });
 
     if (!merchantId) {
       return res.status(400).json({ message: "Merchant ID is required" });
@@ -104,13 +104,13 @@ export const getMerchantAnalytics = async (req, res) => {
       ...merchantFilter,
     };
 
-    console.log("🔍 Simple Match Query:", JSON.stringify(matchQuery, null, 2));
+    // console.log("🔍 Simple Match Query:", JSON.stringify(matchQuery, null, 2));
 
     // Get ALL transactions first to debug
     const allTransactions = await Transaction.find(matchQuery);
-    console.log(
-      `📊 Found ${allTransactions.length} transactions for merchant ${merchantId}`
-    );
+    // console.log(
+    //   `📊 Found ${allTransactions.length} transactions for merchant ${merchantId}`
+    // );
 
     if (allTransactions.length === 0) {
       return res.status(200).json({
@@ -129,16 +129,16 @@ export const getMerchantAnalytics = async (req, res) => {
     }
 
     // Show sample transactions for debugging
-    console.log(
-      "📊 Sample transactions:",
-      allTransactions.slice(0, 3).map((t) => ({
-        id: t._id,
-        status: t.status,
-        amount: t.amount,
-        createdAt: t.createdAt,
-        transactionId: t.transactionId,
-      }))
-    );
+    // console.log(
+    //   "📊 Sample transactions:",
+    //   allTransactions.slice(0, 3).map((t) => ({
+    //     id: t._id,
+    //     status: t.status,
+    //     amount: t.amount,
+    //     createdAt: t.createdAt,
+    //     transactionId: t.transactionId,
+    //   }))
+    // );
 
     // MANUAL CALCULATION - सोपा approach
     let totalSuccessAmount = 0;
@@ -204,7 +204,7 @@ export const getMerchantAnalytics = async (req, res) => {
       },
     };
 
-    console.log("✅ Merchant Analytics Result:", result);
+    // console.log("✅ Merchant Analytics Result:", result);
 
     res.status(200).json(result);
   } catch (error) {
@@ -228,14 +228,14 @@ export const getMerchantAnalytics = async (req, res) => {
 
 // Get merchant sales report - ONLY REAL DATA
 export const getMerchantSalesReport = async (req, res) => {
-  console.log(req.query, "SalesReport");
+  // console.log(req.query, "SalesReport");
   try {
     const { merchantId, timeFilter = "today", startDate, endDate } = req.query;
 
-    console.log("🟡 Merchant Sales Report Request:", {
-      merchantId,
-      timeFilter,
-    });
+    // console.log("🟡 Merchant Sales Report Request:", {
+    //   merchantId,
+    //   timeFilter,
+    // });
 
     if (!merchantId) {
       return res.status(400).json({ message: "Merchant ID is required" });
@@ -254,10 +254,10 @@ export const getMerchantSalesReport = async (req, res) => {
       matchQuery.createdAt = dateRange.createdAt;
     }
 
-    console.log(
-      "🔍 Merchant Sales Report Match Query:",
-      JSON.stringify(matchQuery, null, 2)
-    );
+    // console.log(
+    //   "🔍 Merchant Sales Report Match Query:",
+    //   JSON.stringify(matchQuery, null, 2)
+    // );
 
     // Enhanced aggregation for merchant data
     const salesReport = await Transaction.aggregate([
@@ -418,14 +418,14 @@ export const getMerchantSalesReport = async (req, res) => {
       { $sort: { date: 1 } },
     ]);
 
-    console.log(
-      `✅ Merchant sales report processed: ${salesReport.length} days`
-    );
+    // console.log(
+    //   `✅ Merchant sales report processed: ${salesReport.length} days`
+    // );
 
     // Fill missing dates with zeros (NO SAMPLE DATA)
     let filledReport = salesReport;
     if (salesReport.length === 0) {
-      console.log("📊 No transactions found for this period");
+      // console.log("📊 No transactions found for this period");
       filledReport = fillMissingDatesWithZeros(timeFilter, startDate, endDate);
     }
 
@@ -444,9 +444,9 @@ export const getMerchantAnalyticsWithInitiated = async (req, res) => {
   try {
     const { merchantId, timeFilter = "today", startDate, endDate } = req.query;
 
-    console.log("🟡 Merchant Analytics with INITIATED Request:", {
-      merchantId,
-    });
+    // console.log("🟡 Merchant Analytics with INITIATED Request:", {
+    //   merchantId,
+    // });
 
     if (!merchantId) {
       return res.status(400).json({ message: "Merchant ID is required" });
@@ -468,11 +468,11 @@ export const getMerchantAnalyticsWithInitiated = async (req, res) => {
       };
     }
 
-    console.log("🔍 Match Query:", JSON.stringify(matchQuery, null, 2));
+    // console.log("🔍 Match Query:", JSON.stringify(matchQuery, null, 2));
 
     // Get all transactions first to check statuses
     const allTransactions = await Transaction.find(matchQuery);
-    console.log(`📊 Found ${allTransactions.length} transactions`);
+    // console.log(`📊 Found ${allTransactions.length} transactions`);
 
     if (allTransactions.length === 0) {
       return res.status(200).json({
@@ -502,7 +502,7 @@ export const getMerchantAnalyticsWithInitiated = async (req, res) => {
       totalAmount += amount;
     });
 
-    console.log("📊 Status counts:", statusCounts);
+    // console.log("📊 Status counts:", statusCounts);
 
     // Map statuses to unified categories
     let totalSuccessAmount = 0;
@@ -562,7 +562,7 @@ export const getMerchantAnalyticsWithInitiated = async (req, res) => {
       },
     };
 
-    console.log("✅ Analytics result:", result);
+    // console.log("✅ Analytics result:", result);
 
     res.status(200).json(result);
   } catch (error) {
@@ -588,10 +588,10 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
   try {
     const { merchantId, timeFilter = "today", startDate, endDate } = req.query;
 
-    console.log(
-      "🟡 Current Merchant Analytics Request for merchant:",
-      merchantId
-    );
+    // console.log(
+    //   "🟡 Current Merchant Analytics Request for merchant:",
+    //   merchantId
+    // );
 
     if (!merchantId) {
       return res.status(400).json({ message: "Merchant ID is required" });
@@ -613,17 +613,17 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
       };
     }
 
-    console.log(
-      "🔍 Current Merchant Analytics Match Query:",
-      JSON.stringify(matchQuery, null, 2)
-    );
+    // console.log(
+    //   "🔍 Current Merchant Analytics Match Query:",
+    //   JSON.stringify(matchQuery, null, 2)
+    // );
 
     // First check if any transactions exist
     const transactionCount = await Transaction.countDocuments(matchQuery);
-    console.log(`📊 Total transactions found: ${transactionCount}`);
+    // console.log(`📊 Total transactions found: ${transactionCount}`);
 
     if (transactionCount === 0) {
-      console.log("⚠️ No transactions found for this merchant");
+      // console.log("⚠️ No transactions found for this merchant");
 
       return res.status(200).json({
         totalSuccessAmount: 0,
@@ -644,7 +644,7 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
     // Get sample transactions to check statuses
     const sampleTransactions = await Transaction.find(matchQuery).limit(5);
     const statuses = [...new Set(sampleTransactions.map((t) => t.status))];
-    console.log("📊 Statuses found:", statuses);
+    // console.log("📊 Statuses found:", statuses);
 
     // Enhanced aggregation for unified schema
     const analytics = await Transaction.aggregate([
@@ -954,7 +954,7 @@ export const getCurrentMerchantAnalytics = async (req, res) => {
       result.totalPendingOrders = transactionCount;
     }
 
-    console.log("✅ Current Merchant Analytics Result:", result);
+    // console.log("✅ Current Merchant Analytics Result:", result);
 
     res.status(200).json(result);
   } catch (error) {
@@ -1029,13 +1029,13 @@ export const getMerchantTransactions = async (req, res) => {
       endDate,
     } = req.query;
 
-    console.log("🟡 Merchant Transactions Request:", {
-      merchantId,
-      status,
-      timeFilter,
-      page,
-      limit,
-    });
+    // console.log("🟡 Merchant Transactions Request:", {
+    //   merchantId,
+    //   status,
+    //   timeFilter,
+    //   page,
+    //   limit,
+    // });
 
     if (!merchantId) {
       return res.status(400).json({ message: "Merchant ID is required" });
@@ -1064,10 +1064,10 @@ export const getMerchantTransactions = async (req, res) => {
       matchQuery.createdAt = dateRange.createdAt;
     }
 
-    console.log(
-      "🔍 Merchant Transactions Match Query:",
-      JSON.stringify(matchQuery, null, 2)
-    );
+    // console.log(
+    //   "🔍 Merchant Transactions Match Query:",
+    //   JSON.stringify(matchQuery, null, 2)
+    // );
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -1082,9 +1082,9 @@ export const getMerchantTransactions = async (req, res) => {
 
     const totalCount = await Transaction.countDocuments(matchQuery);
 
-    console.log(
-      `✅ Found ${transactions.length} transactions for merchant ${merchantId}`
-    );
+    // console.log(
+    //   `✅ Found ${transactions.length} transactions for merchant ${merchantId}`
+    // );
 
     res.status(200).json({
       docs: transactions,
@@ -1172,22 +1172,22 @@ export const debugMerchantTransactions = async (req, res) => {
   try {
     const { merchantId } = req.query;
 
-    console.log("🔍 Debugging merchant transactions for:", merchantId);
+    // console.log("🔍 Debugging merchant transactions for:", merchantId);
 
     // Check transactions with this merchant ID
     const transactions = await Transaction.find({
       merchantId: merchantId,
     });
 
-    console.log(
-      `📊 Found ${transactions.length} transactions for merchant ${merchantId}`
-    );
+    // console.log(
+    //   `📊 Found ${transactions.length} transactions for merchant ${merchantId}`
+    // );
 
     // Check ALL transactions to see what merchant IDs exist
     const allTransactions = await Transaction.find().limit(10);
     const merchantIds = [...new Set(allTransactions.map((t) => t.merchantId))];
 
-    console.log("🔍 All merchant IDs in database:", merchantIds);
+    // console.log("🔍 All merchant IDs in database:", merchantIds);
 
     res.json({
       merchantId: merchantId,
@@ -1220,15 +1220,15 @@ export const getCurrentMerchantTransactions = async (req, res) => {
       endDate,
     } = req.query;
 
-    console.log("🟡 Current Merchant Transactions Request:", {
-      merchantId,
-      status,
-      timeFilter,
-      page,
-      limit,
-      startDate,
-      endDate,
-    });
+    // console.log("🟡 Current Merchant Transactions Request:", {
+    //   merchantId,
+    //   status,
+    //   timeFilter,
+    //   page,
+    //   limit,
+    //   startDate,
+    //   endDate,
+    // });
 
     // Validate merchant ID
     if (!merchantId || merchantId === "all" || merchantId === "null") {
@@ -1243,10 +1243,10 @@ export const getCurrentMerchantTransactions = async (req, res) => {
     // ✅ क्रिटिकल: merchantId को filter में जोड़ें
     if (mongoose.Types.ObjectId.isValid(merchantId)) {
       matchQuery.merchantId = new mongoose.Types.ObjectId(merchantId);
-      console.log("✅ Merchant ID is valid MongoDB ObjectId");
+      // console.log("✅ Merchant ID is valid MongoDB ObjectId");
     } else {
       matchQuery.merchantId = merchantId;
-      console.log("ℹ️ Merchant ID is string, using as-is");
+      // console.log("ℹ️ Merchant ID is string, using as-is");
     }
 
     // Status filter
@@ -1278,7 +1278,7 @@ export const getCurrentMerchantTransactions = async (req, res) => {
 
       if (statusMappings[status]) {
         matchQuery.status = { $in: statusMappings[status] };
-        console.log(`✅ Filtering by status: ${status}`);
+        // console.log(`✅ Filtering by status: ${status}`);
       }
     }
 
@@ -1288,11 +1288,11 @@ export const getCurrentMerchantTransactions = async (req, res) => {
       matchQuery.createdAt = dateRange.createdAt;
     }
 
-    console.log(
-      "🔍 Final Match Query for current merchant:",
-      dateRange,
-      JSON.stringify(matchQuery, null, 2)
-    );
+    // console.log(
+    //   "🔍 Final Match Query for current merchant:",
+    //   dateRange,
+    //   JSON.stringify(matchQuery, null, 2)
+    // );
 
     // Aggregate for unified schema handling
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -1448,19 +1448,19 @@ export const getCurrentMerchantTransactions = async (req, res) => {
 
     const totalDocs = totalDocsResult.length > 0 ? totalDocsResult[0].total : 0;
 
-    console.log(
-      `✅ Found ${transactions.length} transactions for current merchant ${merchantId}`
-    );
+    // console.log(
+    //   `✅ Found ${transactions.length} transactions for current merchant ${merchantId}`
+    // );
 
-    if (transactions.length > 0) {
-      console.log("📊 Sample transaction:", {
-        merchantId: merchantId,
-        transactionId: transactions[0].transactionId,
-        amount: transactions[0].amount,
-        status: transactions[0].status,
-        date: transactions[0].createdAt,
-      });
-    }
+    // if (transactions.length > 0) {
+    //   console.log("📊 Sample transaction:", {
+    //     merchantId: merchantId,
+    //     transactionId: transactions[0].transactionId,
+    //     amount: transactions[0].amount,
+    //     status: transactions[0].status,
+    //     date: transactions[0].createdAt,
+    //   });
+    // }
 
     res.status(200).json({
       docs: transactions,
@@ -1486,7 +1486,7 @@ export const getCurrentMerchantTransactions = async (req, res) => {
 // Add to controllers/merchantDashboardController.js
 export const debugAllTransactions = async (req, res) => {
   try {
-    console.log("🔍 Debugging ALL transactions in database");
+    // console.log("🔍 Debugging ALL transactions in database");
 
     // Get ALL transactions
     const allTransactions = await Transaction.find({}).limit(50);
@@ -1545,7 +1545,7 @@ export const checkDatabaseState = async (req, res) => {
   try {
     const { merchantId } = req.query;
 
-    console.log("🔍 Checking database state for merchant:", merchantId);
+    // console.log("🔍 Checking database state for merchant:", merchantId);
 
     // Check ALL transactions (first 20)
     const allTransactions = await Transaction.find({}).limit(20);

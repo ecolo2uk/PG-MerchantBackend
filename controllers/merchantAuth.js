@@ -1,4 +1,5 @@
 import User from "../models/User.js"; // Use consistent casing for filename
+import Merchant from "../models/Merchant.js"; // Use consistent casing for filename
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
@@ -33,6 +34,14 @@ export const loginMerchant = async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid email or password" }); // Use a generic message for security
     }
+    const merchant = await Merchant.findOne({ userId: user._id });
+
+    if (!merchant) {
+      throw new Error("Merchant not found");
+    }
+
+    merchant.lastLoginTime = new Date();
+    await merchant.save();
 
     // If all checks pass, generate a JWT token
     const token = jwt.sign(
@@ -63,6 +72,26 @@ export const loginMerchant = async (req, res) => {
   }
 };
 
+export const logoutMerchant = async (req, res) => {
+  try {
+    // console.log(req.query, "Logout");
+    const { id } = req.body;
+    const merchant = await Merchant.findOne({ userId: id });
+
+    if (!merchant) {
+      throw new Error("Merchant not found");
+    }
+
+    merchant.lastLogoutTime = new Date();
+    await merchant.save();
+
+    return res.json({ success: true, message: "Logout successfull" });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: "Failed to fetch holidays", error: err.message });
+  }
+};
 export const getUser = async (req, res) => {
   // Optional: handle search params (state, rank, date...)
   try {

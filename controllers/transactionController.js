@@ -6,6 +6,7 @@ import xlsx from "xlsx";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
+import Merchant from "../models/Merchant.js";
 
 // Generate unique IDs
 const generateTransactionId = () =>
@@ -81,13 +82,13 @@ const isJWTFormat = (token) => {
 
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
-    console.log("🟡 Fetching merchant connector account for:", merchantId);
+    // console.log("🟡 Fetching merchant connector account for:", merchantId);
 
     let merchantObjectId;
     try {
       merchantObjectId = new mongoose.Types.ObjectId(merchantId);
     } catch (error) {
-      console.log("⚠️ Invalid merchantId, trying string:", merchantId);
+      // console.log("⚠️ Invalid merchantId, trying string:", merchantId);
       merchantObjectId = merchantId;
     }
 
@@ -149,10 +150,10 @@ export const getMerchantConnectorAccount = async (merchantId) => {
       };
     }
 
-    console.log(
-      "❌ No active connector account found for merchant:",
-      merchantId
-    );
+    // console.log(
+    //   "❌ No active connector account found for merchant:",
+    //   merchantId
+    // );
     return null;
   } catch (error) {
     console.error("❌ Error fetching merchant connector:", error);
@@ -163,8 +164,8 @@ export const getMerchantConnectorAccount = async (merchantId) => {
 // ✅ 2. ENPAY QR GENERATION - FIXED (CRITICAL)
 const generateEnpayQR = async (transactionData, integrationKeys) => {
   try {
-    console.log("🔍 ENPAY QR GENERATION STARTED");
-    console.log("Transaction Data:", transactionData);
+    // console.log("🔍 ENPAY QR GENERATION STARTED");
+    // console.log("Transaction Data:", transactionData);
 
     // Validate credentials
     const requiredKeys = [
@@ -180,7 +181,7 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
       throw new Error(`Missing Enpay credentials: ${missingKeys.join(", ")}`);
     }
 
-    console.log("✅ Enpay credentials validated");
+    // console.log("✅ Enpay credentials validated");
 
     // ✅ CRITICAL: Create EXACT payload as Enpay expects
     const payload = {
@@ -192,9 +193,9 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
     // Add amount only if provided (for dynamic QR)
     if (transactionData.amount && transactionData.amount > 0) {
       payload.txnAmount = parseFloat(transactionData.amount).toFixed(2);
-      console.log("💰 Amount added to payload:", payload.txnAmount);
+      // console.log("💰 Amount added to payload:", payload.txnAmount);
 
-      console.log("🟡 Enpay API Payload:", payload);
+      // console.log("🟡 Enpay API Payload:", payload);
 
       // Use base URL from integration keys or default
       const baseUrl =
@@ -202,7 +203,7 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
         "https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway";
       apiUrl = `${baseUrl}/dynamicQR`;
     } else {
-      console.log("🟡 Enpay API Payload:", payload);
+      // console.log("🟡 Enpay API Payload:", payload);
 
       // Use base URL from integration keys or default
       const baseUrl =
@@ -210,7 +211,7 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
         "https://api.enpay.in/enpay-product-service/api/v1/merchant-gateway";
       apiUrl = `${baseUrl}/staticQR`;
     }
-    console.log("🟡 Calling Enpay API:", apiUrl);
+    // console.log("🟡 Calling Enpay API:", apiUrl);
 
     const response = await axios.post(apiUrl, payload, {
       headers: {
@@ -222,15 +223,15 @@ const generateEnpayQR = async (transactionData, integrationKeys) => {
       timeout: 30000,
     });
 
-    console.log("✅ Enpay API Response Code:", response.data.code);
-    console.log("✅ Enpay API Message:", response.data.message);
+    // console.log("✅ Enpay API Response Code:", response.data.code);
+    // console.log("✅ Enpay API Message:", response.data.message);
 
     // Check Enpay response
     if (response.data.code === 0) {
       // ✅ Transaction successfully created in Enpay
       const qrCodeData = response.data.details;
 
-      console.log("✅ Enpay QR generated successfully");
+      // console.log("✅ Enpay QR generated successfully");
 
       return {
         success: true,
@@ -276,13 +277,15 @@ export const generateDynamicQR = async (req, res) => {
   console.log("🚀 ========== GENERATE DYNAMIC QR STARTED ==========");
   // console.log("🔍 Request Body:", req.body);
   // console.log("🔍 Request Headers:", req.headers["content-type"]);
-
+  const session = await mongoose.startSession();
   let savedTransaction = null;
 
   try {
+    session.startTransaction();
     // ✅ FIX 1: Check if body exists
     if (!req.body) {
       console.error("❌ ERROR: req.body is undefined");
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Request body is required",
@@ -293,17 +296,18 @@ export const generateDynamicQR = async (req, res) => {
     const { amount, txnNote = "" } = req.body;
 
     // ✅ FIX 2: Log the actual values
-    console.log("🟡 Parsed values:", {
-      amount: amount,
-      txnNote: txnNote,
-      bodyType: typeof req.body,
-      bodyKeys: Object.keys(req.body),
-    });
+    // console.log("🟡 Parsed values:", {
+    //   amount: amount,
+    //   txnNote: txnNote,
+    //   bodyType: typeof req.body,
+    //   bodyKeys: Object.keys(req.body),
+    // });
 
     const merchantId = req.user?.id || req.user?._id;
     const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
 
     if (!merchantId) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Merchant ID not found",
@@ -311,14 +315,33 @@ export const generateDynamicQR = async (req, res) => {
     }
 
     let user;
-    if (merchantId) user = await User.findOne({ _id: merchantId });
+    if (merchantId)
+      user = await User.findOne({ _id: merchantId }).session(session);
+
+    if (!user) {
+      await session.abortTransaction();
+      return res
+        .status(400)
+        .json({ success: false, message: "Merchnat Not found" });
+    }
+    const merchant = await Merchant.findOne({ userId: user._id }).session(
+      session
+    );
+    // console.log(merchant);
+    if (!merchant) {
+      await session.abortTransaction();
+      return res.status(500).json({
+        success: false,
+        message: "Merchant not found",
+      });
+    }
 
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
     const transactionLimit = await Transaction.find({
       merchantId,
       ...dateFilter,
-    });
+    }).session(session);
 
     // console.log(transactionLimit.length, "transactionLimit");
 
@@ -327,6 +350,7 @@ export const generateDynamicQR = async (req, res) => {
 
     if (user.transactionLimit) {
       if (used >= limit) {
+        await session.abortTransaction();
         return res.status(403).json({
           success: false,
           message: "Transaction limit has been exceeded for today!",
@@ -334,15 +358,16 @@ export const generateDynamicQR = async (req, res) => {
       }
     }
 
-    console.log("🟡 Generate Dynamic QR Request:", {
-      merchantId,
-      merchantName,
-      amount,
-      txnNote,
-    });
+    // console.log("🟡 Generate Dynamic QR Request:", {
+    //   merchantId,
+    //   merchantName,
+    //   amount,
+    //   txnNote,
+    // });
 
     const amountNum = parseFloat(amount);
     if (amountNum < 500) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Amount should be greater than 500",
@@ -350,13 +375,14 @@ export const generateDynamicQR = async (req, res) => {
     }
 
     // ✅ Step 1: Get Merchant Connector
-    console.log("🟡 Step 1: Getting merchant connector...");
+    // console.log("🟡 Step 1: Getting merchant connector...");
     const merchantConnectorAccount = await getMerchantConnectorAccount(
       merchantId
     );
 
     if (!merchantConnectorAccount) {
-      console.log("❌ No connector account found for merchant");
+      // console.log("❌ No connector account found for merchant");
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message:
@@ -365,31 +391,33 @@ export const generateDynamicQR = async (req, res) => {
       });
     }
 
-    console.log(
-      "✅ Merchant connector found:",
-      merchantConnectorAccount.connectorAccDetails.name
-    );
+    // console.log(
+    //   "✅ Merchant connector found:",
+    //   merchantConnectorAccount.connectorAccDetails.name
+    // );
 
     // ✅ Step 2: Generate Transaction IDs
-    console.log("🟡 Step 2: Generating transaction IDs...");
+    // console.log("🟡 Step 2: Generating transaction IDs...");
     const transactionId = generateEnpayTransactionId();
     const txnRefId = transactionId; // Use same as transactionId for Enpay
     const merchantOrderId = `ORDER${Date.now()}`;
 
-    console.log("📝 Generated IDs:", {
-      transactionId,
-      txnRefId,
-      merchantOrderId,
-    });
+    // console.log("📝 Generated IDs:", {
+    //   transactionId,
+    //   txnRefId,
+    //   merchantOrderId,
+    // });
 
     // ✅ Step 3: Create Transaction Object
-    console.log("🟡 Step 3: Creating transaction object...");
+    // console.log("🟡 Step 3: Creating transaction object...");
     const transactionData = {
       transactionId,
       merchantId: merchantId,
       merchantName,
       amount: amount ? parseFloat(amount) : null,
       status: "INITIATED",
+      previousStatus: "INITIATED",
+      payInApplied: false,
       txnNote,
 
       // Enpay Specific
@@ -424,24 +452,24 @@ export const generateDynamicQR = async (req, res) => {
       vendorRefId: `VENDOR${Date.now()}`,
     };
 
-    console.log("📊 Transaction data prepared:", transactionData);
+    // console.log("📊 Transaction data prepared:", transactionData);
 
     // ✅ Step 4: Save to Database FIRST
-    console.log("🟡 Step 4: Saving to database...");
+    // console.log("🟡 Step 4: Saving to database...");
     const transaction = new Transaction(transactionData);
-    savedTransaction = await transaction.save();
+    savedTransaction = await transaction.save({ session });
 
-    console.log("✅ Transaction saved in database:", {
-      id: savedTransaction._id,
-      transactionId: savedTransaction.transactionId,
-      amount: savedTransaction.amount,
-    });
+    // console.log("✅ Transaction saved in database:", {
+    //   id: savedTransaction._id,
+    //   transactionId: savedTransaction.transactionId,
+    //   amount: savedTransaction.amount,
+    // });
 
     // ✅ Step 5: Generate QR via Enpay
-    console.log(
-      "🟡 Step 5: Calling Enpay API...",
-      merchantConnectorAccount.connectorAccDetails
-    );
+    // console.log(
+    //   "🟡 Step 5: Calling Enpay API...",
+    //   merchantConnectorAccount.connectorAccDetails
+    // );
 
     const qrResult = await generateEnpayQR(
       {
@@ -456,15 +484,15 @@ export const generateDynamicQR = async (req, res) => {
       merchantConnectorAccount.connectorAccDetails.integrationKeys
     );
 
-    console.log("✅ QR Generation Result:", {
-      success: qrResult.success,
-      enpayTransactionCreated: qrResult.enpayTransactionCreated,
-      connector: qrResult.connector,
-      hasQR: !!qrResult.qrData,
-    });
+    // console.log("✅ QR Generation Result:", {
+    //   success: qrResult.success,
+    //   enpayTransactionCreated: qrResult.enpayTransactionCreated,
+    //   connector: qrResult.connector,
+    //   hasQR: !!qrResult.qrData,
+    // });
 
     // ✅ Step 6: Update Transaction with QR Data
-    console.log("🟡 Step 6: Updating transaction with QR data...");
+    // console.log("🟡 Step 6: Updating transaction with QR data...");
 
     const updateData = {
       qrCode: qrResult.qrData,
@@ -481,18 +509,30 @@ export const generateDynamicQR = async (req, res) => {
       updateData.gatewayTransactionId = qrResult.enpayTxnId;
     }
 
-    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData);
+    await Transaction.findByIdAndUpdate(
+      savedTransaction._id,
+      updateData
+    ).session(session);
 
+    await Merchant.findOneAndUpdate(
+      { userId: user._id },
+      {
+        lastPayinTransactions: savedTransaction._id,
+      },
+      { new: true, session }
+    );
+
+    await session.commitTransaction();
     // Fetch updated transaction
     const updatedTransaction = await Transaction.findById(savedTransaction._id);
 
-    console.log(
-      "✅ Transaction updated successfully:",
-      updatedTransaction.transactionId
-    );
+    // console.log(
+    //   "✅ Transaction updated successfully:",
+    //   updatedTransaction.transactionId
+    // );
 
     // ✅ Step 7: Return Response
-    console.log("🟡 Step 7: Returning response...");
+    // console.log("🟡 Step 7: Returning response...");
 
     const responseData = {
       success: true,
@@ -514,12 +554,13 @@ export const generateDynamicQR = async (req, res) => {
       },
     };
 
-    console.log("✅ Response prepared:", responseData.success);
+    // console.log("✅ Response prepared:", responseData.success);
     console.log("🚀 ========== GENERATE DYNAMIC QR COMPLETED ==========");
 
     res.status(200).json(responseData);
   } catch (error) {
     console.error("❌ GENERATE QR ERROR:", error);
+    await session.abortTransaction();
 
     // Update transaction status if it exists
     if (savedTransaction && savedTransaction._id) {
@@ -530,7 +571,7 @@ export const generateDynamicQR = async (req, res) => {
           enpayError: error.message,
           updatedAt: new Date(),
         });
-        console.log("✅ Updated transaction as FAILED");
+        // console.log("✅ Updated transaction as FAILED");
       } catch (updateError) {
         console.error("❌ Failed to update transaction status:", updateError);
       }
@@ -543,19 +584,24 @@ export const generateDynamicQR = async (req, res) => {
       details: error.response?.data || null,
       connector: "enpay",
     });
+  } finally {
+    session.endSession();
   }
 };
 
 export const generateDynamicQRTransaction = async (req, res) => {
   // console.log("Body keys:", Object.keys(req.body));
   // console.log("🔍 Request Headers:", req.headers);
+  const session = await mongoose.startSession();
   let savedTransaction = null;
 
   try {
+    session.startTransaction();
     const authHeader =
       req.headers["authorization"] || req.headers["Authorization"];
 
     if (!authHeader) {
+      await session.abortTransaction();
       return res
         .status(401)
         .json({ success: false, message: "No token provided" });
@@ -565,6 +611,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
     const token = authHeader.split(" ")[1];
 
     if (!token) {
+      await session.abortTransaction();
       return res
         .status(401)
         .json({ success: false, message: "Token malformed" });
@@ -573,6 +620,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     // ✅ Check if token is in valid JWT format
     if (!isJWTFormat(token)) {
+      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message: "Invalid authorization token format",
@@ -587,6 +635,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
     } catch (err) {
+      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message:
@@ -597,8 +646,10 @@ export const generateDynamicQRTransaction = async (req, res) => {
     }
     // console.log("Decoded payload:", decoded);
     let user;
-    if (decoded) user = await User.findOne({ _id: decoded.userId });
+    if (decoded)
+      user = await User.findOne({ _id: decoded.userId }).session(session);
     if (!user) {
+      await session.abortTransaction();
       return res
         .status(400)
         .json({ success: false, message: "Merchnat Not found" });
@@ -606,9 +657,22 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     const isMatch = await bcrypt.compare(decoded.password, user.password);
     if (!isMatch) {
+      await session.abortTransaction();
       return res
         .status(400)
         .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
+    }
+
+    const merchant = await Merchant.findOne({ userId: user._id }).session(
+      session
+    );
+    // console.log(merchant);
+    if (!merchant) {
+      await session.abortTransaction();
+      return res.status(500).json({
+        success: false,
+        message: "Merchant not found",
+      });
     }
 
     const dateFilter = todayFilter();
@@ -616,7 +680,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
     const transactionLimit = await Transaction.find({
       merchantId: user._id,
       ...dateFilter,
-    });
+    }).session(session);
 
     // console.log(transactionLimit.length, "transactionLimit");
 
@@ -625,6 +689,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     if (user.transactionLimit) {
       if (used >= limit) {
+        await session.abortTransaction();
         return res.status(403).json({
           success: false,
           message: "Transaction limit has been exceeded for today!",
@@ -637,6 +702,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
     // ✅ FIX 1: Check if body exists
     if (!req.body) {
       console.error("❌ ERROR: req.body is undefined");
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Request body is required",
@@ -650,6 +716,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
     const { txnRefId, amount, txnNote = "Payment for Order" } = req.body;
 
     if (!txnRefId) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "TxnRefId cannot be blank",
@@ -657,6 +724,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
     }
 
     if (!amount) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Amount cannot be blank",
@@ -664,37 +732,44 @@ export const generateDynamicQRTransaction = async (req, res) => {
     }
 
     // ✅ FIX 2: Log the actual values
-    console.log("🟡 Parsed values:", {
-      txnRefId,
-      amount: amount,
-      txnNote: txnNote,
-      merchantId,
-      merchantName: merchantName,
-      bodyType: typeof req.body,
-      bodyKeys: Object.keys(req.body),
-    });
+    // console.log("🟡 Parsed values:", {
+    //   txnRefId,
+    //   amount: amount,
+    //   txnNote: txnNote,
+    //   merchantId,
+    //   merchantName: merchantName,
+    //   bodyType: typeof req.body,
+    //   bodyKeys: Object.keys(req.body),
+    // });
 
-    console.log("🟡 Generate Request:", {
-      merchantId,
-      merchantName,
-      amount,
-      txnNote,
-    });
+    // console.log("🟡 Generate Request:", {
+    //   merchantId,
+    //   merchantName,
+    //   amount,
+    //   txnNote,
+    // });
 
     // ✅ Check if txnRefId already exists
-    const existingTxnRefId = await Transaction.findOne({ txnRefId });
+    const existingTxnRefId = await Transaction.findOne({ txnRefId }).session(
+      session
+    );
     if (existingTxnRefId) {
-      return res.status(400).json({ message: "TxnRefId already exists" });
+      await session.abortTransaction();
+      return res
+        .status(400)
+        .json({ success: false, message: "txnRefId already exists" });
     }
 
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum)) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Invalid amount. Amount should be a valid number",
       });
     }
     if (amountNum < 500) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Amount should be greater than 500",
@@ -702,13 +777,14 @@ export const generateDynamicQRTransaction = async (req, res) => {
     }
 
     // ✅ Step 1: Get Merchant Connector
-    console.log("🟡 Step 1: Getting merchant connector...");
+    // console.log("🟡 Step 1: Getting merchant connector...");
     const merchantConnectorAccount = await getMerchantConnectorAccount(
       merchantId
     );
 
     if (!merchantConnectorAccount) {
-      console.log("❌ No connector account found for merchant");
+      // console.log("❌ No connector account found for merchant");
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "No payment connector configured. Please contact admin.",
@@ -716,31 +792,33 @@ export const generateDynamicQRTransaction = async (req, res) => {
       });
     }
 
-    console.log(
-      "✅ Merchant connector found:",
-      merchantConnectorAccount.connectorAccDetails.name
-    );
+    // console.log(
+    //   "✅ Merchant connector found:",
+    //   merchantConnectorAccount.connectorAccDetails.name
+    // );
 
     // ✅ Step 2: Generate Transaction IDs
-    console.log("🟡 Step 2: Generating transaction IDs...");
+    // console.log("🟡 Step 2: Generating transaction IDs...");
     const transactionId = txnRefId;
     // const txnRefId = transactionId; // Use same as transactionId for Enpay
     const merchantOrderId = `ORDER${Date.now()}`;
 
-    console.log("📝 Generated IDs:", {
-      transactionId,
-      txnRefId,
-      merchantOrderId,
-    });
+    // console.log("📝 Generated IDs:", {
+    //   transactionId,
+    //   txnRefId,
+    //   merchantOrderId,
+    // });
 
     // ✅ Step 3: Create Transaction Object
-    console.log("🟡 Step 3: Creating transaction object...");
+    // console.log("🟡 Step 3: Creating transaction object...");
     const transactionData = {
       transactionId,
       merchantId: merchantId,
       merchantName,
       amount: amount ? parseFloat(amount) : null,
       status: "INITIATED",
+      previousStatus: "INITIATED",
+      payInApplied: false,
       txnNote,
 
       // Enpay Specific
@@ -775,24 +853,24 @@ export const generateDynamicQRTransaction = async (req, res) => {
       vendorRefId: `VENDOR${Date.now()}`,
     };
 
-    console.log("📊 Transaction data prepared:", transactionData);
+    // console.log("📊 Transaction data prepared:", transactionData);
 
     // ✅ Step 4: Save to Database FIRST
-    console.log("🟡 Step 4: Saving to database...");
+    // console.log("🟡 Step 4: Saving to database...");
     const transaction = new Transaction(transactionData);
-    savedTransaction = await transaction.save();
+    savedTransaction = await transaction.save({ session });
 
-    console.log("✅ Transaction saved in database:", {
-      id: savedTransaction._id,
-      transactionId: savedTransaction.transactionId,
-      amount: savedTransaction.amount,
-    });
+    // console.log("✅ Transaction saved in database:", {
+    //   id: savedTransaction._id,
+    //   transactionId: savedTransaction.transactionId,
+    //   amount: savedTransaction.amount,
+    // });
 
     // ✅ Step 5: Generate QR via Enpay
-    console.log(
-      "🟡 Step 5: Calling Enpay API...",
-      merchantConnectorAccount.connectorAccDetails
-    );
+    // console.log(
+    //   "🟡 Step 5: Calling Enpay API...",
+    //   merchantConnectorAccount.connectorAccDetails
+    // );
 
     let qrResult;
     try {
@@ -809,15 +887,16 @@ export const generateDynamicQRTransaction = async (req, res) => {
         merchantConnectorAccount.connectorAccDetails.integrationKeys
       );
     } catch (error) {
-      console.log(error, "Duplication");
+      // console.log(error, "Duplication");
       if (error.message === "Duplicate transaction reference Id.") {
+        await session.abortTransaction();
         return res.status(400).json({
           success: false,
           message: "txnRefId already exists.",
           // message: "Duplicate transaction reference Id.",
         });
       }
-
+      await session.abortTransaction();
       return res.status(500).json({
         success: false,
         message: "Failed to generate Enpay payment link",
@@ -825,15 +904,15 @@ export const generateDynamicQRTransaction = async (req, res) => {
       });
     }
 
-    console.log("✅ QR Generation Result:", {
-      success: qrResult.success,
-      enpayTransactionCreated: qrResult.enpayTransactionCreated,
-      connector: qrResult.connector,
-      hasQR: !!qrResult.qrData,
-    });
+    // console.log("✅ QR Generation Result:", {
+    //   success: qrResult.success,
+    //   enpayTransactionCreated: qrResult.enpayTransactionCreated,
+    //   connector: qrResult.connector,
+    //   hasQR: !!qrResult.qrData,
+    // });
 
     // ✅ Step 6: Update Transaction with QR Data
-    console.log("🟡 Step 6: Updating transaction with QR data...");
+    // console.log("🟡 Step 6: Updating transaction with QR data...");
 
     const updateData = {
       qrCode: qrResult.qrData,
@@ -850,18 +929,31 @@ export const generateDynamicQRTransaction = async (req, res) => {
       updateData.gatewayTransactionId = qrResult.enpayTxnId;
     }
 
-    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData);
+    await Transaction.findByIdAndUpdate(
+      savedTransaction._id,
+      updateData
+    ).session(session);
+
+    await Merchant.findOneAndUpdate(
+      { userId: user._id },
+      {
+        lastPayinTransactions: savedTransaction._id,
+      },
+      { new: true, session }
+    );
+
+    await session.commitTransaction();
 
     // Fetch updated transaction
     const updatedTransaction = await Transaction.findById(savedTransaction._id);
 
-    console.log(
-      "✅ Transaction updated successfully:",
-      updatedTransaction.transactionId
-    );
+    // console.log(
+    //   "✅ Transaction updated successfully:",
+    //   updatedTransaction.transactionId
+    // );
 
     // ✅ Step 7: Return Response
-    console.log("🟡 Step 7: Returning response...");
+    // console.log("🟡 Step 7: Returning response...");
 
     const responseData = {
       success: true,
@@ -883,12 +975,13 @@ export const generateDynamicQRTransaction = async (req, res) => {
       // },
     };
 
-    console.log("✅ Response prepared:", responseData.success);
+    // console.log("✅ Response prepared:", responseData.success);
     console.log("🚀 ========== GENERATE DYNAMIC QR COMPLETED ==========");
 
     res.status(200).json(responseData);
   } catch (error) {
     console.error("❌ GENERATE QR ERROR:", error);
+    await session.abortTransaction();
 
     // Update transaction status if it exists
     if (savedTransaction && savedTransaction._id) {
@@ -899,7 +992,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
           enpayError: error.message,
           updatedAt: new Date(),
         });
-        console.log("✅ Updated transaction as FAILED");
+        // console.log("✅ Updated transaction as FAILED");
       } catch (updateError) {
         console.error("❌ Failed to update transaction status:", updateError);
       }
@@ -912,6 +1005,8 @@ export const generateDynamicQRTransaction = async (req, res) => {
       details: error.response?.data || null,
       // connector: "enpay",
     });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -919,7 +1014,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
 export const getMerchantConnector = async (req, res) => {
   try {
     const merchantId = req.user.id;
-    console.log("🟡 Fetching connector for merchant:", merchantId);
+    // console.log("🟡 Fetching connector for merchant:", merchantId);
 
     const connectorAccountRes = await getMerchantConnectorAccount(merchantId);
     const connectorAccount = connectorAccountRes.connectorAccDetails;
@@ -968,7 +1063,7 @@ export const getMerchantConnector = async (req, res) => {
 export const getTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
-    console.log("🟡 Fetching transactions for merchant:", merchantId);
+    // console.log("🟡 Fetching transactions for merchant:", merchantId);
 
     // Handle both string and ObjectId merchantId
     let query = { merchantId: merchantId };
@@ -984,7 +1079,7 @@ export const getTransactions = async (req, res) => {
       .limit(50)
       .lean();
 
-    console.log(`✅ Found ${transactions.length} transactions`);
+    // console.log(`✅ Found ${transactions.length} transactions`);
 
     // Format response
     const formattedTransactions = transactions.map((txn) => ({
@@ -1030,7 +1125,7 @@ export const getTransactions = async (req, res) => {
 export const getSalesTransactions = async (req, res) => {
   try {
     const merchantId = req.user.id;
-    console.log("🟡 Fetching transactions for merchant:", merchantId);
+    // console.log("🟡 Fetching transactions for merchant:", merchantId);
     // console.log(req.query);
     const { transactionRefId, fromDate, toDate } = req.query;
 
@@ -1063,7 +1158,7 @@ export const getSalesTransactions = async (req, res) => {
       .limit(50)
       .lean();
 
-    console.log(`✅ Found ${transactions.length} transactions`);
+    // console.log(`✅ Found ${transactions.length} transactions`);
 
     // Format response
     const formattedTransactions = transactions.map((txn) => ({
@@ -1127,7 +1222,7 @@ export const exportSalesToExcel = async (req, res) => {
       .limit(50)
       .lean();
 
-    console.log(`✅ Found ${transactions.length} transactions`);
+    // console.log(`✅ Found ${transactions.length} transactions`);
 
     // DEFINE HEADERS
     const headers = [
@@ -1189,23 +1284,46 @@ export const exportSalesToExcel = async (req, res) => {
 
 export const generateDefaultQR = async (req, res) => {
   console.log("🔵 ========== GENERATE DEFAULT/STATIC QR STARTED ==========");
-  console.log("🟡 Merchant ID:", req.user?.id);
+  // console.log("🟡 Merchant ID:", req.user?.id);
 
+  const session = await mongoose.startSession();
   let savedTransaction = null;
 
   try {
+    session.startTransaction();
+
     const merchantId = req.user?.id || req.user?._id;
     const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
 
     let user;
-    if (merchantId) user = await User.findOne({ _id: merchantId });
+    if (merchantId)
+      user = await User.findOne({ _id: merchantId }).session(session);
+
+    if (!user) {
+      await session.abortTransaction();
+      return res
+        .status(400)
+        .json({ success: false, message: "Merchnat Not found" });
+    }
+
+    const merchant = await Merchant.findOne({ userId: user._id }).session(
+      session
+    );
+    // console.log(merchant);
+    if (!merchant) {
+      await session.abortTransaction();
+      return res.status(500).json({
+        success: false,
+        message: "Merchant not found",
+      });
+    }
 
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
     const transactionLimit = await Transaction.find({
       merchantId,
       ...dateFilter,
-    });
+    }).session(session);
 
     // console.log(transactionLimit.length, "transactionLimit");
 
@@ -1214,6 +1332,7 @@ export const generateDefaultQR = async (req, res) => {
 
     if (user.transactionLimit) {
       if (used >= limit) {
+        await session.abortTransaction();
         return res.status(403).json({
           success: false,
           message: "Transaction limit has been exceeded for today!",
@@ -1229,7 +1348,8 @@ export const generateDefaultQR = async (req, res) => {
     );
 
     if (!merchantConnectorAccount) {
-      console.log("❌ No connector account found for merchant");
+      // console.log("❌ No connector account found for merchant");
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "No payment connector configured",
@@ -1237,10 +1357,10 @@ export const generateDefaultQR = async (req, res) => {
       });
     }
 
-    console.log(
-      "✅ Merchant connector found for static QR:",
-      merchantConnectorAccount.connectorAccDetails.name
-    );
+    // console.log(
+    //   "✅ Merchant connector found for static QR:",
+    //   merchantConnectorAccount.connectorAccDetails.name
+    // );
 
     const transactionId = `STATIC${Date.now()}`;
     const txnRefId = transactionId;
@@ -1252,6 +1372,8 @@ export const generateDefaultQR = async (req, res) => {
       merchantName,
       amount: null, // ✅ NULL for static QR (no amount)
       status: "INITIATED",
+      previousStatus: "INITIATED",
+      payInApplied: false,
       txnNote: "Static QR Payment",
       isStaticQR: true, // ✅ Mark as static QR
       isDefaultQR: true,
@@ -1282,16 +1404,16 @@ export const generateDefaultQR = async (req, res) => {
       settlementStatus: "UNSETTLED",
     };
 
-    console.log("📊 Static QR Transaction Data:", transactionData);
+    // console.log("📊 Static QR Transaction Data:", transactionData);
 
     // Save to database
     const transaction = new Transaction(transactionData);
-    savedTransaction = await transaction.save();
+    savedTransaction = await transaction.save({ session });
 
-    console.log("✅ Static QR transaction saved:", savedTransaction._id);
+    // console.log("✅ Static QR transaction saved:", savedTransaction._id);
 
     // ✅ FIX: Generate STATIC QR (no amount) for Enpay API
-    console.log("🟡 Calling Enpay STATIC QR API...");
+    // console.log("🟡 Calling Enpay STATIC QR API...");
 
     const qrResult = await generateEnpayQR(
       {
@@ -1306,10 +1428,10 @@ export const generateDefaultQR = async (req, res) => {
       merchantConnectorAccount.connectorAccDetails.integrationKeys
     );
 
-    console.log("✅ Static QR Generation Result:", {
-      success: qrResult.success,
-      isStaticQR: qrResult.isStaticQR,
-    });
+    // console.log("✅ Static QR Generation Result:", {
+    //   success: qrResult.success,
+    //   isStaticQR: qrResult.isStaticQR,
+    // });
 
     // Update transaction
     const updateData = {
@@ -1324,11 +1446,23 @@ export const generateDefaultQR = async (req, res) => {
       updatedAt: new Date(),
     };
 
-    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData);
+    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData, {
+      session,
+    });
+
+    await Merchant.findOneAndUpdate(
+      { userId: user._id },
+      {
+        lastPayinTransactions: savedTransaction._id,
+      },
+      { new: true, session }
+    );
+
+    await session.commitTransaction();
 
     const updatedTransaction = await Transaction.findById(savedTransaction._id);
 
-    console.log("✅ Static QR generated successfully");
+    // console.log("✅ Static QR generated successfully");
 
     res.status(200).json({
       success: true,
@@ -1344,6 +1478,7 @@ export const generateDefaultQR = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Generate Static QR Error:", error);
+    await session.abortTransaction();
 
     // Update transaction status if it exists
     if (savedTransaction && savedTransaction._id) {
@@ -1354,7 +1489,7 @@ export const generateDefaultQR = async (req, res) => {
           enpayError: error.message,
           updatedAt: new Date(),
         });
-        console.log("✅ Updated static QR transaction as FAILED");
+        // console.log("✅ Updated static QR transaction as FAILED");
       } catch (updateError) {
         console.error("❌ Failed to update transaction status:", updateError);
       }
@@ -1367,19 +1502,24 @@ export const generateDefaultQR = async (req, res) => {
       details: error.response?.data || null,
       connector: "enpay",
     });
+  } finally {
+    session.endSession();
   }
 };
 
 export const generateDefaultQRTransaction = async (req, res) => {
   console.log("🔵 ========== GENERATE DEFAULT/STATIC QR STARTED ==========");
   // console.log(req.body);
+  const session = await mongoose.startSession();
   let savedTransaction = null;
 
   try {
+    session.startTransaction();
     const authHeader =
       req.headers["authorization"] || req.headers["Authorization"];
 
     if (!authHeader) {
+      await session.abortTransaction();
       return res
         .status(401)
         .json({ success: false, message: "No token provided" });
@@ -1390,6 +1530,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
     const token = authHeader.split(" ")[1];
 
     if (!token) {
+      await session.abortTransaction();
       return res
         .status(401)
         .json({ success: false, message: "Token malformed" });
@@ -1397,6 +1538,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
 
     // ✅ Check if token is in valid JWT format
     if (!isJWTFormat(token)) {
+      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message: "Invalid authorization token format",
@@ -1406,13 +1548,12 @@ export const generateDefaultQRTransaction = async (req, res) => {
     // console.log("Token received:", token);
 
     // Now you can verify JWT
-    // const decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
-
     let decoded;
 
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
     } catch (err) {
+      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message:
@@ -1424,26 +1565,40 @@ export const generateDefaultQRTransaction = async (req, res) => {
 
     // console.log("Decoded payload:", decoded);
     let user;
-    if (decoded) user = await User.findOne({ _id: decoded.userId });
+    if (decoded)
+      user = await User.findOne({ _id: decoded.userId }).session(session);
     if (!user) {
+      await session.abortTransaction();
       return res
         .status(400)
         .json({ success: false, message: "Merchnat Not found" });
     }
-    console.log(user);
+    // console.log(user);
     const isMatch = await bcrypt.compare(decoded.password, user.password);
     if (!isMatch) {
+      await session.abortTransaction();
       return res
         .status(400)
         .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
     }
 
+    const merchant = await Merchant.findOne({ userId: user._id }).session(
+      session
+    );
+    // console.log(merchant);
+    if (!merchant) {
+      await session.abortTransaction();
+      return res.status(500).json({
+        success: false,
+        message: "Merchant not found",
+      });
+    }
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
     const transactionLimit = await Transaction.find({
       merchantId: user._id,
       ...dateFilter,
-    });
+    }).session(session);
 
     // console.log(transactionLimit.length, "transactionLimit");
 
@@ -1452,6 +1607,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
 
     if (user.transactionLimit) {
       if (used >= limit) {
+        await session.abortTransaction();
         return res.status(403).json({
           success: false,
           message: "Transaction limit has been exceeded for today!",
@@ -1462,6 +1618,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
     const { txnRefId, txnNote = "Static QR Payment" } = req.body;
 
     if (!txnRefId) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "TxnRefId cannot be blank",
@@ -1473,21 +1630,24 @@ export const generateDefaultQRTransaction = async (req, res) => {
       user.company || user?.firstname + " " + (user?.lastname || "");
 
     // ✅ FIX 2: Log the actual values
-    console.log("🟡 Parsed values:", {
-      merchantId: merchantId,
-      merchantName: merchantName,
-      txnRefId,
-      txnNote,
-    });
+    // console.log("🟡 Parsed values:", {
+    //   merchantId: merchantId,
+    //   merchantName: merchantName,
+    //   txnRefId,
+    //   txnNote,
+    // });
 
-    console.log("🔵 Generate Static QR for:", merchantId);
+    // console.log("🔵 Generate Static QR for:", merchantId);
 
     // ✅ Check if txnRefId already exists
-    const existingTxnRefId = await Transaction.findOne({ txnRefId });
+    const existingTxnRefId = await Transaction.findOne({ txnRefId }).session(
+      session
+    );
     if (existingTxnRefId) {
+      await session.abortTransaction();
       return res
         .status(400)
-        .json({ success: false, message: "TxnRefId already exists" });
+        .json({ success: false, message: "txnRefId already exists" });
     }
 
     // Get merchant connector
@@ -1496,7 +1656,8 @@ export const generateDefaultQRTransaction = async (req, res) => {
     );
 
     if (!merchantConnectorAccount) {
-      console.log("❌ No connector account found for merchant");
+      // console.log("❌ No connector account found for merchant");
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "No payment connector configured. Please contact admin.",
@@ -1504,10 +1665,10 @@ export const generateDefaultQRTransaction = async (req, res) => {
       });
     }
 
-    console.log(
-      "✅ Merchant connector found for static QR:",
-      merchantConnectorAccount.connectorAccDetails.name
-    );
+    // console.log(
+    //   "✅ Merchant connector found for static QR:",
+    //   merchantConnectorAccount.connectorAccDetails.name
+    // );
 
     const transactionId = txnRefId;
     // const txnRefId = transactionId;
@@ -1519,6 +1680,8 @@ export const generateDefaultQRTransaction = async (req, res) => {
       merchantName,
       amount: null, // ✅ NULL for static QR (no amount)
       status: "INITIATED",
+      previousStatus: "INITIATED",
+      payInApplied: false,
       txnNote: txnNote || "",
       isStaticQR: true, // ✅ Mark as static QR
       isDefaultQR: true,
@@ -1549,16 +1712,16 @@ export const generateDefaultQRTransaction = async (req, res) => {
       settlementStatus: "UNSETTLED",
     };
 
-    console.log("📊 Static QR Transaction Data:", transactionData);
+    // console.log("📊 Static QR Transaction Data:", transactionData);
 
     // Save to database
     const transaction = new Transaction(transactionData);
-    savedTransaction = await transaction.save();
+    savedTransaction = await transaction.save({ session });
 
-    console.log("✅ Static QR transaction saved:", savedTransaction._id);
+    // console.log("✅ Static QR transaction saved:", savedTransaction._id);
 
     // ✅ FIX: Generate STATIC QR (no amount) for Enpay API
-    console.log("🟡 Calling Enpay STATIC QR API...");
+    // console.log("🟡 Calling Enpay STATIC QR API...");
 
     let qrResult;
     try {
@@ -1575,15 +1738,16 @@ export const generateDefaultQRTransaction = async (req, res) => {
         merchantConnectorAccount.connectorAccDetails.integrationKeys
       );
     } catch (error) {
-      console.log(error, "Duplication");
+      // console.log(error, "Duplication");
       if (error.message === "Duplicate transaction reference Id.") {
+        await session.abortTransaction();
         return res.status(400).json({
           success: false,
           message: "txnRefId already exists.",
           // message: "Duplicate transaction reference Id.",
         });
       }
-
+      await session.abortTransaction();
       return res.status(500).json({
         success: false,
         message: "Failed to generate Enpay payment link",
@@ -1591,10 +1755,10 @@ export const generateDefaultQRTransaction = async (req, res) => {
       });
     }
 
-    console.log("✅ Static QR Generation Result:", {
-      success: qrResult.success,
-      isStaticQR: qrResult.isStaticQR,
-    });
+    // console.log("✅ Static QR Generation Result:", {
+    //   success: qrResult.success,
+    //   isStaticQR: qrResult.isStaticQR,
+    // });
 
     // Update transaction
     const updateData = {
@@ -1609,11 +1773,22 @@ export const generateDefaultQRTransaction = async (req, res) => {
       updatedAt: new Date(),
     };
 
-    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData);
+    await Transaction.findByIdAndUpdate(savedTransaction._id, updateData, {
+      session,
+    });
 
+    await Merchant.findOneAndUpdate(
+      { userId: user._id },
+      {
+        lastPayinTransactions: savedTransaction._id,
+      },
+      { new: true, session }
+    );
+
+    await session.commitTransaction();
     const updatedTransaction = await Transaction.findById(savedTransaction._id);
 
-    console.log("✅ Static QR generated successfully");
+    // console.log("✅ Static QR generated successfully");
 
     res.status(200).json({
       success: true,
@@ -1629,6 +1804,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Generate Static QR Error:", error);
+    await session.abortTransaction();
 
     // Update transaction status if it exists
     if (savedTransaction && savedTransaction._id) {
@@ -1639,7 +1815,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
           enpayError: error.message,
           updatedAt: new Date(),
         });
-        console.log("✅ Updated static QR transaction as FAILED");
+        // console.log("✅ Updated static QR transaction as FAILED");
       } catch (updateError) {
         console.error("❌ Failed to update transaction status:", updateError);
       }
@@ -1651,6 +1827,8 @@ export const generateDefaultQRTransaction = async (req, res) => {
       // error: error.message,
       details: error.response?.data || null,
     });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -1673,12 +1851,12 @@ function generateShortId(length = 10) {
 }
 
 function extractIntegrationKeys(connectorAccount) {
-  console.log("🔍 Extracting integration keys from:", {
-    hasIntegrationKeys: !!connectorAccount?.integrationKeys,
-    hasConnectorAccountId:
-      !!connectorAccount?.connectorAccountId?.integrationKeys,
-    connectorAccountId: connectorAccount?.connectorAccountId?._id,
-  });
+  // console.log("🔍 Extracting integration keys from:", {
+  //   hasIntegrationKeys: !!connectorAccount?.integrationKeys,
+  //   hasConnectorAccountId:
+  //     !!connectorAccount?.connectorAccountId?.integrationKeys,
+  //   connectorAccountId: connectorAccount?.connectorAccountId?._id,
+  // });
 
   let integrationKeys = {};
 
@@ -1687,15 +1865,15 @@ function extractIntegrationKeys(connectorAccount) {
     connectorAccount?.integrationKeys &&
     Object.keys(connectorAccount.integrationKeys).length > 0
   ) {
-    console.log("🎯 Found keys in connectorAccount.integrationKeys");
+    // console.log("🎯 Found keys in connectorAccount.integrationKeys");
     integrationKeys = connectorAccount.integrationKeys;
   } else if (
     connectorAccount?.connectorAccountId?.integrationKeys &&
     Object.keys(connectorAccount.connectorAccountId.integrationKeys).length > 0
   ) {
-    console.log(
-      "🎯 Found keys in connectorAccount.connectorAccountId.integrationKeys"
-    );
+    // console.log(
+    //   "🎯 Found keys in connectorAccount.connectorAccountId.integrationKeys"
+    // );
     integrationKeys = connectorAccount.connectorAccountId.integrationKeys;
   } else {
     console.log("⚠️ No integration keys found in standard locations");
@@ -1704,17 +1882,17 @@ function extractIntegrationKeys(connectorAccount) {
   // ✅ Convert if it's a Map or special object
   if (integrationKeys instanceof Map) {
     integrationKeys = Object.fromEntries(integrationKeys);
-    console.log("🔍 Converted Map to Object");
+    // console.log("🔍 Converted Map to Object");
   } else if (typeof integrationKeys === "string") {
     try {
       integrationKeys = JSON.parse(integrationKeys);
-      console.log("🔍 Parsed JSON string to Object");
+      // console.log("🔍 Parsed JSON string to Object");
     } catch (e) {
       console.error("❌ Failed to parse integrationKeys string:", e);
     }
   }
 
-  console.log("🎯 Extracted Keys:", Object.keys(integrationKeys));
+  // console.log("🎯 Extracted Keys:", Object.keys(integrationKeys));
   return integrationKeys;
 }
 
@@ -1726,7 +1904,7 @@ const generateEnpayPayment = async ({
   connectorAccount,
 }) => {
   try {
-    console.log("🔹 Generating Enpay Payment");
+    // console.log("🔹 Generating Enpay Payment");
 
     // 1. Get Keys (Calculated in main function)
     const keys = connectorAccount.extractedKeys || {};
@@ -1760,7 +1938,7 @@ const generateEnpayPayment = async ({
       txnNote: `Payment for Order`,
     };
 
-    console.log("📤 Enpay Request Payload:", requestData);
+    // console.log("📤 Enpay Request Payload:", requestData);
 
     // 5. API Call
     const enpayResponse = await axios.post(
@@ -1777,7 +1955,7 @@ const generateEnpayPayment = async ({
       }
     );
 
-    console.log("✅ Enpay API Response:", enpayResponse.data);
+    // console.log("✅ Enpay API Response:", enpayResponse.data);
 
     // 6. Extract Link
     let paymentLink = "";
@@ -1814,12 +1992,15 @@ const generateEnpayPayment = async ({
 export const generatePaymentLinkTransaction = async (req, res) => {
   const startTime = Date.now();
   console.log("🚀 generatePaymentLink STARTED", req.body);
+  const session = await mongoose.startSession();
 
   try {
+    session.startTransaction();
     const authHeader =
       req.headers["authorization"] || req.headers["Authorization"];
 
     if (!authHeader) {
+      await session.abortTransaction();
       return res
         .status(401)
         .json({ success: false, message: "No token provided" });
@@ -1829,6 +2010,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     const token = authHeader.split(" ")[1];
 
     if (!token) {
+      await session.abortTransaction();
       return res
         .status(401)
         .json({ success: false, message: "Token malformed" });
@@ -1838,6 +2020,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     // ✅ Check if token is in valid JWT format
     if (!isJWTFormat(token)) {
+      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message: "Invalid authorization token format",
@@ -1851,6 +2034,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
     } catch (err) {
+      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message:
@@ -1861,8 +2045,10 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     }
     // console.log("Decoded payload:", decoded);
     let user;
-    if (decoded) user = await User.findOne({ _id: decoded.userId });
+    if (decoded)
+      user = await User.findOne({ _id: decoded.userId }).session(session);
     if (!user) {
+      await session.abortTransaction();
       return res
         .status(400)
         .json({ success: false, message: "Merchnat Not found" });
@@ -1870,17 +2056,29 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     const isMatch = await bcrypt.compare(decoded.password, user.password);
     if (!isMatch) {
+      await session.abortTransaction();
       return res
         .status(400)
         .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
     }
 
+    const merchantUpdate = await Merchant.findOne({ userId: user._id }).session(
+      session
+    );
+    // console.log(merchantUpdate);
+    if (!merchantUpdate) {
+      await session.abortTransaction();
+      return res.status(500).json({
+        success: false,
+        message: "Merchant not found",
+      });
+    }
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
     const transactionLimit = await Transaction.find({
       merchantId: user._id,
       ...dateFilter,
-    });
+    }).session(session);
 
     // console.log(transactionLimit.length, "transactionLimit");
 
@@ -1889,6 +2087,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     if (user.transactionLimit) {
       if (used >= limit) {
+        await session.abortTransaction();
         return res.status(403).json({
           success: false,
           message: "Transaction limit has been exceeded for today!",
@@ -1908,6 +2107,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     // Validation
     if (!txnRefId) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "TxnRefId cannot be blank",
@@ -1915,14 +2115,18 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     }
 
     if (!amount) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Amount cannot be blank",
       });
     }
 
-    const existingTxnRefId = await Transaction.findOne({ txnRefId });
+    const existingTxnRefId = await Transaction.findOne({ txnRefId }).session(
+      session
+    );
     if (existingTxnRefId) {
+      await session.abortTransaction();
       return res
         .status(400)
         .json({ success: false, message: "txnRefId already exists" });
@@ -1934,12 +2138,14 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum)) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Invalid amount. Amount should be a valid number",
       });
     }
     if (amountNum < 500) {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Amount should be greater than 500",
@@ -1949,7 +2155,8 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     // Find merchant
     const merchant = await mongoose.connection.db
       .collection("users")
-      .findOne({ _id: new mongoose.Types.ObjectId(merchantId) });
+      .findOne({ _id: new mongoose.Types.ObjectId(merchantId) }, { session });
+    // .session(session);
 
     // if (!merchant) {
     //   return res.status(404).json({
@@ -1961,24 +2168,33 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     // Find Active Connector Account
     const activeAccount = await mongoose.connection.db
       .collection("merchantconnectoraccounts")
-      .findOne({
-        merchantId: new mongoose.Types.ObjectId(merchantId),
-        isPrimary: true,
-        status: "Active",
-      });
+      .findOne(
+        {
+          merchantId: new mongoose.Types.ObjectId(merchantId),
+          isPrimary: true,
+          status: "Active",
+        },
+        { session }
+      );
 
     const connector = await mongoose.connection.db
       .collection("connectors")
-      .findOne({ _id: activeAccount.connectorId });
+      .findOne({ _id: activeAccount.connectorId }, { session });
 
     const connectorAccount = await mongoose.connection.db
       .collection("connectoraccounts")
-      .findOne({ _id: activeAccount.connectorAccountId });
+      .findOne(
+        { _id: activeAccount.connectorAccountId },
+        {
+          session,
+        }
+      );
 
     activeAccount.connectorId = connector;
     activeAccount.connectorAccountId = connectorAccount;
 
     if (!activeAccount) {
+      await session.abortTransaction();
       return res.status(404).json({
         success: false,
         message: "No payment connector configured. Please contact admin.",
@@ -1987,14 +2203,14 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     }
 
     const connectorName = activeAccount.connectorId?.name;
-    console.log("🎯 Using Connector:", connectorName);
+    // console.log("🎯 Using Connector:", connectorName);
 
     // Extract keys using helper function
     const integrationKeys = extractIntegrationKeys(activeAccount);
-    console.log("🔑 Integration Keys Extracted:", {
-      keysCount: Object.keys(integrationKeys).length,
-      availableKeys: Object.keys(integrationKeys),
-    });
+    // console.log("🔑 Integration Keys Extracted:", {
+    //   keysCount: Object.keys(integrationKeys).length,
+    //   availableKeys: Object.keys(integrationKeys),
+    // });
     const accountWithKeys = {
       ...activeAccount, // Convert mongoose document to plain object
       extractedKeys: integrationKeys,
@@ -2025,6 +2241,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
         // console.error(`❌ Enpay Payment link generation failed:`, error);
 
         if (error.message === "Duplicate transaction reference Id.") {
+          await session.abortTransaction();
           return res.status(400).json({
             success: false,
             message: "txnRefId already exists.",
@@ -2032,6 +2249,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
           });
         }
 
+        await session.abortTransaction();
         return res.status(500).json({
           success: false,
           message: "Failed to generate Enpay payment link",
@@ -2039,6 +2257,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
         });
       }
     } else {
+      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Unsupported connector: " + connectorName,
@@ -2046,6 +2265,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     }
 
     if (!paymentResult) {
+      await session.abortTransaction();
       return res.status(500).json({
         success: false,
         message: "Payment gateway did not return a valid response",
@@ -2071,6 +2291,8 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       amount: amountNum,
       currency: currency,
       status: "INITIATED",
+      previousStatus: "INITIATED",
+      payInApplied: false,
       paymentMethod: paymentMethod,
       paymentOption: paymentOption,
       paymentUrl: paymentResult.paymentLink,
@@ -2099,7 +2321,17 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     // Save transaction
     const newTransaction = new Transaction(transactionData);
-    await newTransaction.save();
+    await newTransaction.save({ session });
+
+    await Merchant.findOneAndUpdate(
+      { userId: user._id },
+      {
+        lastPayinTransactions: newTransaction._id,
+      },
+      { new: true, session }
+    );
+
+    await session.commitTransaction();
 
     console.log(
       `✅ ${connectorName} payment link generated in ${
@@ -2117,11 +2349,15 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     });
   } catch (error) {
     console.error(`❌ Payment link generation failed:`, error);
+    await session.abortTransaction();
+
     res.status(500).json({
       success: false,
       message: "Failed to generate payment link",
       details: error.response?.data || null,
     });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -2129,10 +2365,10 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 export const createDefaultConnectorAccount = async (req, res) => {
   try {
     const merchantId = req.user.id;
-    console.log(
-      "🟡 Creating default Enpay connector for merchant:",
-      merchantId
-    );
+    // console.log(
+    //   "🟡 Creating default Enpay connector for merchant:",
+    //   merchantId
+    // );
 
     // Get merchant
     const merchant = await mongoose.connection.db
@@ -2186,7 +2422,7 @@ export const createDefaultConnectorAccount = async (req, res) => {
       .collection("merchantconnectoraccounts")
       .insertOne(connectorAccountData);
 
-    console.log("✅ Default Enpay connector created:", result.insertedId);
+    // console.log("✅ Default Enpay connector created:", result.insertedId);
 
     res.json({
       success: true,

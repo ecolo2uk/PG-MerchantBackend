@@ -2,12 +2,32 @@ import mongoose from "mongoose";
 
 const UserSchema = new mongoose.Schema(
   {
-    firstname: { type: String, required: true },
-    lastname: { type: String, required: true },
-    company: { type: String },
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-
+    firstname: {
+      type: String,
+      required: [true, "First name is required"],
+      trim: true,
+    },
+    lastname: {
+      type: String,
+      required: [true, "Last name is required"],
+      trim: true,
+    },
+    company: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    email: {
+      type: String,
+      required: [true, "Email is required"],
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+    password: {
+      type: String,
+      required: [true, "Password is required"],
+    },
     headerKey: {
       type: String,
     },
@@ -17,7 +37,7 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      required: true,
+      required: [true, "Role is required"],
       enum: ["admin", "merchant", "psp"],
     },
     status: {
@@ -25,9 +45,20 @@ const UserSchema = new mongoose.Schema(
       enum: ["Active", "Inactive"],
       default: "Active",
     },
-    contact: { type: String },
-    mid: { type: String, unique: true, sparse: true },
-    pspId: { type: String, unique: true, sparse: true },
+    contact: {
+      type: String,
+      trim: true,
+    },
+    mid: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    pspId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
     documents: [
       {
         documentName: { type: String },

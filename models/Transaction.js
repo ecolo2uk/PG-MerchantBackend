@@ -8,8 +8,8 @@ const transactionSchema = new mongoose.Schema(
     transactionId: {
       type: String,
       required: true,
-      unique: true,
       index: true,
+      unique: true,
     },
 
     merchantOrderId: { type: String },
@@ -19,8 +19,8 @@ const transactionSchema = new mongoose.Schema(
     txnRefId: {
       type: String,
       unique: true,
-      sparse: true,
       index: true,
+      sparse: true,
     },
 
     shortLinkId: {
@@ -75,6 +75,14 @@ const transactionSchema = new mongoose.Schema(
         "REFUNDED",
         "REDIRECTED",
       ],
+    },
+
+    payInApplied: { type: Boolean, default: false },
+    wasFailed: { type: Boolean, default: false },
+    totalApplied: { type: Boolean, default: false },
+
+    previousStatus: {
+      type: String,
     },
 
     // =========================
@@ -288,6 +296,8 @@ transactionSchema.index({ merchantId: 1, createdAt: -1 });
 transactionSchema.index({ enpayTxnId: 1 });
 transactionSchema.index({ status: 1 });
 transactionSchema.index({ createdAt: -1 });
+transactionSchema.index({ paymentMethod: 1, createdAt: -1 });
+transactionSchema.index({ status: 1, payInApplied: 1 });
 
 // =========================
 // METHODS
