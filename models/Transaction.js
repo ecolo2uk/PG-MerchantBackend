@@ -172,6 +172,18 @@ const transactionSchema = new mongoose.Schema(
       default: "",
     },
 
+    cfQrCode: {
+      type: String,
+      default: "",
+    },
+
+    cfError: String,
+    cfResponse: mongoose.Schema.Types.Mixed,
+    cfTransactionStatus: String,
+    cfInitiationStatus: {
+      type: String,
+      default: "NOT_ATTEMPTED",
+    },
     // =========================
     // ENPAY FIELDS (MERGED)
     // =========================
