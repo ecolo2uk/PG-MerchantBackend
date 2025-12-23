@@ -184,6 +184,29 @@ const transactionSchema = new mongoose.Schema(
       type: String,
       default: "NOT_ATTEMPTED",
     },
+
+    razorPayTxnId: {
+      type: String,
+      default: "",
+    },
+
+    razorPayPaymentLink: {
+      type: String,
+      default: "",
+    },
+
+    razorPayQrCode: {
+      type: String,
+      default: "",
+    },
+
+    razorPayError: String,
+    razorPayResponse: mongoose.Schema.Types.Mixed,
+    razorPayTransactionStatus: String,
+    razorPayInitiationStatus: {
+      type: String,
+      default: "NOT_ATTEMPTED",
+    },
     // =========================
     // ENPAY FIELDS (MERGED)
     // =========================
