@@ -586,6 +586,7 @@ export const generateDynamicQR = async (req, res) => {
       merchantOrderId,
       txnRefId,
       netAmount: amount ? parseFloat(amount) : 0,
+      transactionType: "QR",
 
       // UPI Info
       // upiId: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
@@ -1079,6 +1080,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
       merchantOrderId,
       txnRefId,
       netAmount: amount ? parseFloat(amount) : 0,
+      transactionType: "QR",
 
       // UPI Info
       // upiId: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
@@ -1755,6 +1757,7 @@ export const generateDefaultQR = async (req, res) => {
       paymentMethod: "UPI",
       txnRefId,
       merchantOrderId,
+      transactionType: "QR",
 
       // // UPI info
       // upiId: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
@@ -2160,6 +2163,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
       paymentMethod: "UPI",
       txnRefId,
       merchantOrderId: `ORDER${Date.now()}`,
+      transactionType: "QR",
 
       // UPI info
       // upiId: `${merchantConnectorAccount.connectorAccDetails.integrationKeys?.merchantHashId}@enpay`,
@@ -2967,6 +2971,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       gatewayTxnId: paymentResult.gatewayTxnId,
       gatewayPaymentLink: paymentResult.paymentLink,
       gatewayOrderId: paymentResult.gatewayOrderId,
+      transactionType: "Link",
 
       customerName: `${merchant.firstname} ${merchant.lastname || ""}`,
       customerVpa: ``,
