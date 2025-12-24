@@ -2545,7 +2545,7 @@ const generateEnpayPayment = async ({
       paymentLink: paymentLink,
       merchantOrderId: merchantOrderId,
       txnRefId: txnRefId,
-      gatewayTxnId: enpayTxnId,
+      gatewayTransactionId: enpayTxnId,
       enpayTxnId: enpayTxnId,
       enpayResponse,
     };
@@ -2573,6 +2573,8 @@ export const generateRazorpayPayment = async ({
   connectorAccount,
 }) => {
   try {
+    // console.log("🔹 Generating Razorpay Payment", merchant);
+
     const integrationKeys = connectorAccount.extractedKeys || {};
 
     const requiredKeys = ["key_id", "key_secret"];
@@ -2601,10 +2603,12 @@ export const generateRazorpayPayment = async ({
       currency: "INR",
       accept_partial: false,
       reference_id: txnRefId,
-      description: `Payment for ${merchant.company || merchant.merchantName}`,
+      description: `Payment for ${
+        merchant.company || `${merchant.firstname} ${merchant.lastname || ""}`
+      }`,
 
       customer: {
-        name: `${merchant.merchantName || ""}`,
+        name: `${merchant.firstname} ${merchant.lastname || ""}`,
         email: merchant.email || "",
         contact: merchant.contact || "",
       },
@@ -2620,6 +2624,7 @@ export const generateRazorpayPayment = async ({
       // callback_method: "get",
     };
 
+    // console.log(paymentLinkPayload);
     const razorpayResponse = await razorpay.paymentLink.create(
       paymentLinkPayload
     );
@@ -2628,7 +2633,7 @@ export const generateRazorpayPayment = async ({
       paymentLink: razorpayResponse.short_url,
       merchantOrderId,
       txnRefId,
-      gatewayTxnId: razorpayTxnId,
+      gatewayTransactionId: razorpayResponse.id,
       razorPayTxnId: razorpayResponse.id,
       razorPayResponse: razorpayResponse,
     };
@@ -2972,7 +2977,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       connectorName: connectorName,
       terminalId: activeAccount.terminalId || "N/A",
 
-      gatewayTxnId: paymentResult.gatewayTxnId,
+      gatewayTransactionId: paymentResult.gatewayTransactionId,
       gatewayPaymentLink: paymentResult.paymentLink,
       gatewayOrderId: paymentResult.gatewayOrderId,
       transactionType: "Link",
