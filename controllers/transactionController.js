@@ -2553,7 +2553,7 @@ const generateEnpayPayment = async ({
     console.error("❌ Enpay Error:", error.message);
     if (error.response) {
       console.error("Enpay API Response Data:", error.response.data);
-      throw new Error(error.response.data?.message);
+      throw { message: error.response.data?.message };
       // throw new Error(
       //   `Enpay Provider Error: ${
       //     error.response.data?.message || error.response.statusText
@@ -2640,11 +2640,10 @@ export const generateRazorpayPayment = async ({
   } catch (error) {
     console.error("❌ Razorpay payment link error:", error?.error || error);
 
-    throw new Error(
-      error?.error?.description ||
-        error?.message ||
-        "Razorpay payment link generation failed"
-    );
+    throw {
+      message:
+        error?.error?.description || "Razorpay payment link generation failed",
+    };
   }
 };
 
@@ -2918,7 +2917,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
         return res.status(500).json({
           success: false,
           message: "Failed to generate Enpay payment link",
-          details: error.response?.data || null,
+          details: error.response?.data || error.message || null,
         });
       }
     } else if (connectorName === "razorpay") {
@@ -3041,7 +3040,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to generate payment link",
-      details: error.response?.data || null,
+      details: error.response?.data || error.message || null,
     });
   } finally {
     session.endSession();
