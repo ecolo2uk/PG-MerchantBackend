@@ -2616,8 +2616,8 @@ export const generateRazorpayPayment = async ({
 
       reminder_enable: true,
 
-      callback_url: `${FRONTEND_BASE_URL}/payment/success?transactionId=${txnRefId}`,
-      callback_method: "get",
+      // callback_url: `${FRONTEND_BASE_URL}/payment/success?transactionId=${txnRefId}`,
+      // callback_method: "get",
     };
 
     const razorpayResponse = await razorpay.paymentLink.create(
@@ -2986,14 +2986,16 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       source: connectorName.toLowerCase(),
     };
 
-    if (connectorName === "Enpay") {
+    if (connectorName === "enpay") {
       transactionData.enpayTxnId = paymentResult.enpayTxnId;
       transactionData.enpayPaymentLink = paymentResult.paymentLink;
       transactionData.enpayResponse = paymentResult.enpayResponse;
       transactionData.enpayTransactionStatus = "CREATED";
       transactionData.enpayInitiationStatus = "ENPAY_CREATED";
-    } else if (connectorName === "Razorpay") {
-      transactionData.razorPayTxnId = paymentResult.razorPayTxnId;
+    } else if (connectorName === "razorpay") {
+      transactionData.txnRefId = paymentResult.razorPayTxnId; //It is used to check the payment status
+      transactionData.razorPayTxnId = paymentResult.txnRefId; //this is the Reference Id which is passed to generate Payment Link
+      transactionData.razorPayPaymentLink = paymentResult.paymentLink;
       transactionData.razorPayResponse = paymentResult.razorPayResponse;
       transactionData.razorPayTransactionStatus = "CREATED";
       transactionData.razorPayInitiationStatus = "RAZORPAY_CREATED";
