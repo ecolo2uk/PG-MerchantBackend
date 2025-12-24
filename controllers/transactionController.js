@@ -673,6 +673,7 @@ export const generateDynamicQR = async (req, res) => {
           qrCode: qrResult.qrData,
           paymentUrl: qrResult.paymentUrl,
           enpayTxnId: qrResult.enpayTxnId,
+          enpayQrCode: qrResult.qrData,
           enpayResponse: qrResult.enpayResponse,
           enpayTransactionStatus: "CREATED",
           enpayInitiationStatus: "ENPAY_CREATED",
@@ -1163,6 +1164,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
           qrCode: qrResult.qrData,
           paymentUrl: qrResult.paymentUrl,
           enpayTxnId: qrResult.enpayTxnId,
+          enpayQrCode: qrResult.qrData,
           enpayResponse: qrResult.enpayResponse,
           enpayTransactionStatus: "CREATED",
           enpayInitiationStatus: "ENPAY_CREATED",
@@ -1836,6 +1838,7 @@ export const generateDefaultQR = async (req, res) => {
           qrCode: qrResult.qrData,
           paymentUrl: qrResult.paymentUrl,
           enpayTxnId: qrResult.enpayTxnId,
+          enpayQrCode: qrResult.qrData,
           enpayResponse: qrResult.enpayResponse,
           enpayTransactionStatus: "CREATED",
           enpayInitiationStatus: "ENPAY_CREATED",
@@ -2241,6 +2244,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
           qrCode: qrResult.qrData,
           paymentUrl: qrResult.paymentUrl,
           enpayTxnId: qrResult.enpayTxnId,
+          enpayQrCode: qrResult.qrData,
           enpayResponse: qrResult.enpayResponse,
           enpayTransactionStatus: "CREATED",
           enpayInitiationStatus: "ENPAY_CREATED",
@@ -2984,6 +2988,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     if (connectorName === "Enpay") {
       transactionData.enpayTxnId = paymentResult.enpayTxnId;
+      transactionData.enpayPaymentLink = paymentResult.paymentLink;
       transactionData.enpayResponse = paymentResult.enpayResponse;
       transactionData.enpayTransactionStatus = "CREATED";
       transactionData.enpayInitiationStatus = "ENPAY_CREATED";
