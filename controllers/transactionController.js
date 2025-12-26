@@ -2497,7 +2497,7 @@ const generateEnpayPayment = async ({
   connectorAccount,
 }) => {
   try {
-    // console.log("🔹 Generating Enpay Payment");
+    console.log("🔹 Generating Enpay Payment");
 
     // 1. Get Keys (Calculated in main function)
     const keys = connectorAccount.extractedKeys || {};
@@ -2576,7 +2576,7 @@ const generateEnpayPayment = async ({
       enpayResponse,
     };
   } catch (error) {
-    console.error("❌ Enpay Error:", error.message);
+    console.log("❌ Enpay Error:", error.message);
     if (error.response) {
       console.error("Enpay API Response Data:", error.response.data);
       throw { message: error.response.data?.message };
