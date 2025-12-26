@@ -2497,7 +2497,7 @@ const generateEnpayPayment = async ({
   connectorAccount,
 }) => {
   try {
-    console.log("🔹 Generating Enpay Payment");
+    // console.log("🔹 Generating Enpay Payment");
 
     // 1. Get Keys (Calculated in main function)
     const keys = connectorAccount.extractedKeys || {};
@@ -2576,7 +2576,7 @@ const generateEnpayPayment = async ({
       enpayResponse,
     };
   } catch (error) {
-    console.log("❌ Enpay Error:", error.message);
+    console.error("❌ Enpay Error:", error.message);
     if (error.response) {
       console.error("Enpay API Response Data:", error.response.data);
       throw { message: error.response.data?.message };
@@ -2925,7 +2925,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       });
     } else if (connectorName === "enpay") {
       try {
-        console.log(`Enpay started:`);
+        // console.log(`Enpay started:`);
         paymentResult = await generateEnpayPayment({
           txnRefId,
           amount: amountNum,
@@ -3031,7 +3031,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     if (connectorName === "enpay") {
       transactionData.enpayTxnId = paymentResult.enpayTxnId;
       transactionData.enpayPaymentLink = paymentResult.paymentLink;
-      transactionData.enpayResponse = paymentResult.enpayResponse;
+      transactionData.enpayResponse = paymentResult.enpayResponse.data;
       transactionData.enpayTransactionStatus = "CREATED";
       transactionData.enpayInitiationStatus = "ENPAY_CREATED";
     } else if (connectorName === "razorpay") {
