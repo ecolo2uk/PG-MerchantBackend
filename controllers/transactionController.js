@@ -2925,6 +2925,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       });
     } else if (connectorName === "enpay") {
       try {
+        console.log(`Enpay started:`);
         paymentResult = await generateEnpayPayment({
           txnRefId,
           amount: amountNum,
