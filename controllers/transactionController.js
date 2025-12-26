@@ -995,6 +995,17 @@ export const generateDynamicQRTransaction = async (req, res) => {
         .json({ success: false, message: "txnRefId already exists" });
     }
 
+    const existingTransactionId = await Transaction.findOne({
+      transactionId: txnRefId,
+    }).session(session);
+
+    if (existingTransactionId) {
+      await session.abortTransaction();
+      return res
+        .status(400)
+        .json({ success: false, message: "txnRefId already exists" });
+    }
+
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum)) {
       await session.abortTransaction();
@@ -2110,6 +2121,17 @@ export const generateDefaultQRTransaction = async (req, res) => {
         .json({ success: false, message: "txnRefId already exists" });
     }
 
+    const existingTransactionId = await Transaction.findOne({
+      transactionId: txnRefId,
+    }).session(session);
+
+    if (existingTransactionId) {
+      await session.abortTransaction();
+      return res
+        .status(400)
+        .json({ success: false, message: "txnRefId already exists" });
+    }
+
     // Get merchant connector
     const merchantConnectorAccount = await getMerchantConnectorAccount(
       merchantId
@@ -2785,6 +2807,17 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       session
     );
     if (existingTxnRefId) {
+      await session.abortTransaction();
+      return res
+        .status(400)
+        .json({ success: false, message: "txnRefId already exists" });
+    }
+
+    const existingTransactionId = await Transaction.findOne({
+      transactionId: txnRefId,
+    }).session(session);
+
+    if (existingTransactionId) {
       await session.abortTransaction();
       return res
         .status(400)

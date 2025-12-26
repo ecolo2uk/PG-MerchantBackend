@@ -18,13 +18,27 @@ const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 // app.use(express.urlencoded({ extended: true }));
-connectDB();
+// connectDB();
 
 app.use("/api/merchant/auth", merchantAuthRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/merchant", merchantRoutes);
 app.use("/api", webhookRoutes);
+
+const startServer = async () => {
+  try {
+    await connectDB();
+
+    app.listen(process.env.PORT || 5000, () => {
+      console.log("🚀 Server running");
+    });
+  } catch (err) {
+    process.exit(1);
+  }
+};
+
+startServer();
 
 app.get("/", (req, res) => {
   res.send("Welcome to the PG-Merchant Backend API!");
