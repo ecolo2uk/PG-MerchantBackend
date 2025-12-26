@@ -827,6 +827,10 @@ export const generateDynamicQR = async (req, res) => {
 export const generateDynamicQRTransaction = async (req, res) => {
   // console.log("Body keys:", Object.keys(req.body));
   // console.log("🔍 Request Headers:", req.headers);
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error("MongoDB not connected");
+  }
+
   const session = await mongoose.startSession();
   let savedTransaction = null;
 
