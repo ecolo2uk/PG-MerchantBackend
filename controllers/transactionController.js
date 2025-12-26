@@ -827,20 +827,14 @@ export const generateDynamicQR = async (req, res) => {
 export const generateDynamicQRTransaction = async (req, res) => {
   // console.log("Body keys:", Object.keys(req.body));
   // console.log("🔍 Request Headers:", req.headers);
-  if (mongoose.connection.readyState !== 1) {
-    throw new Error("MongoDB not connected");
-  }
-
-  const session = await mongoose.startSession();
   let savedTransaction = null;
+  let session;
 
   try {
-    session.startTransaction();
     const authHeader =
       req.headers["authorization"] || req.headers["Authorization"];
 
     if (!authHeader) {
-      await session.abortTransaction();
       return res
         .status(401)
         .json({ success: false, message: "No token provided" });
@@ -850,7 +844,6 @@ export const generateDynamicQRTransaction = async (req, res) => {
     const token = authHeader.split(" ")[1];
 
     if (!token) {
-      await session.abortTransaction();
       return res
         .status(401)
         .json({ success: false, message: "Token malformed" });
@@ -859,7 +852,6 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     // ✅ Check if token is in valid JWT format
     if (!isJWTFormat(token)) {
-      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message: "Invalid authorization token format",
@@ -874,7 +866,6 @@ export const generateDynamicQRTransaction = async (req, res) => {
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
     } catch (err) {
-      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message:
@@ -883,23 +874,15 @@ export const generateDynamicQRTransaction = async (req, res) => {
             : "Invalid authorization token",
       });
     }
+
+    session = await mongoose.startSession();
+    session.startTransaction();
     // console.log("Decoded payload:", decoded);
     let user;
     if (decoded)
       user = await User.findOne({ _id: decoded.userId }).session(session);
     if (!user) {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({ success: false, message: "Merchnat Not found" });
-    }
-
-    const isMatch = await bcrypt.compare(decoded.password, user.password);
-    if (!isMatch) {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
+      throw { message: "Merchant Not found" };
     }
 
     const merchant = await Merchant.findOne({ userId: user._id }).session(
@@ -907,11 +890,12 @@ export const generateDynamicQRTransaction = async (req, res) => {
     );
     // console.log(merchant);
     if (!merchant) {
-      await session.abortTransaction();
-      return res.status(500).json({
-        success: false,
-        message: "Merchant not found",
-      });
+      throw { message: "Merchant Not found" };
+    }
+
+    const isMatch = await bcrypt.compare(decoded.password, user.password);
+    if (!isMatch) {
+      throw { message: "Invalid merchant token" }; //It returns error on wrong password or old header key
     }
 
     const dateFilter = todayFilter();
@@ -928,11 +912,9 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     if (user.transactionLimit) {
       if (used >= limit) {
-        await session.abortTransaction();
-        return res.status(403).json({
-          success: false,
+        throw {
           message: "Transaction limit has been exceeded for today!",
-        });
+        };
       }
     }
 
@@ -941,12 +923,9 @@ export const generateDynamicQRTransaction = async (req, res) => {
     // ✅ FIX 1: Check if body exists
     if (!req.body) {
       console.error("❌ ERROR: req.body is undefined");
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
+      throw {
         message: "Request body is required",
-        error: "req.body is undefined",
-      });
+      };
     }
 
     const merchantId = user._id;
@@ -955,19 +934,15 @@ export const generateDynamicQRTransaction = async (req, res) => {
     const { txnRefId, amount, txnNote = "" } = req.body;
 
     if (!txnRefId) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
+      throw {
         message: "TxnRefId cannot be blank",
-      });
+      };
     }
 
     if (!amount) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
+      throw {
         message: "Amount cannot be blank",
-      });
+      };
     }
 
     // ✅ FIX 2: Log the actual values
@@ -993,10 +968,9 @@ export const generateDynamicQRTransaction = async (req, res) => {
       session
     );
     if (existingTxnRefId) {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({ success: false, message: "txnRefId already exists" });
+      throw {
+        message: "txnRefId already exists",
+      };
     }
 
     const existingTransactionId = await Transaction.findOne({
@@ -1004,26 +978,22 @@ export const generateDynamicQRTransaction = async (req, res) => {
     }).session(session);
 
     if (existingTransactionId) {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({ success: false, message: "txnRefId already exists" });
+      throw {
+        message: "txnRefId already exists",
+      };
     }
 
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum)) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
+      throw {
         message: "Invalid amount. Amount should be a valid number",
-      });
+      };
     }
+
     if (amountNum < 500) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
+      throw {
         message: "Amount should be greater than 500",
-      });
+      };
     }
 
     // ✅ Step 1: Get Merchant Connector
@@ -1034,12 +1004,9 @@ export const generateDynamicQRTransaction = async (req, res) => {
 
     if (!merchantConnectorAccount) {
       // console.log("❌ No connector account found for merchant");
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
+      throw {
         message: "No payment connector configured. Please contact admin.",
-        needsSetup: true,
-      });
+      };
     }
 
     // console.log(
@@ -1198,12 +1165,9 @@ export const generateDynamicQRTransaction = async (req, res) => {
       } catch (error) {
         // console.log(error, "Duplication");
         if (error.message === "Duplicate transaction reference Id.") {
-          await session.abortTransaction();
-          return res.status(400).json({
-            success: false,
+          throw {
             message: "txnRefId already exists.",
-            // message: "Duplicate transaction reference Id.",
-          });
+          };
         }
         // await session.abortTransaction();
         // return res.status(500).json({
@@ -1256,12 +1220,11 @@ export const generateDynamicQRTransaction = async (req, res) => {
         }).session(session);
       }
     } else {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
+      throw {
         message: `Unsupported connector: ${connectorName}`,
-      });
+      };
     }
+
     // console.log("✅ QR Generation Result:", {
     //   success: qrResult.success,
     //   enpayTransactionCreated: qrResult.enpayTransactionCreated,
@@ -1340,15 +1303,15 @@ export const generateDynamicQRTransaction = async (req, res) => {
     res.status(200).json(responseData);
   } catch (error) {
     console.error("❌ GENERATE QR ERROR:", error);
-    await session.abortTransaction();
+    if (session?.inTransaction()) {
+      await session.abortTransaction();
+    }
 
     // Update transaction status if it exists
     if (savedTransaction?._id) {
       try {
         await Transaction.findByIdAndUpdate(savedTransaction._id, {
           status: "FAILED",
-          // enpayInitiationStatus: "ATTEMPTED_FAILED",
-          // enpayError: error.message,
           updatedAt: new Date(),
         });
         // console.log("✅ Updated transaction as FAILED");
@@ -1360,12 +1323,10 @@ export const generateDynamicQRTransaction = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to generate dynamic QR",
-      // error: error.message,
-      details: error.response?.data || null,
-      // connector: "enpay",
+      details: error.message || error.response?.data || null,
     });
   } finally {
-    session.endSession();
+    if (session) session.endSession();
   }
 };
 
