@@ -2614,15 +2614,11 @@ export const generateRazorpayPayment = async ({
       );
     }
 
-    // const razorpay = new Razorpay({
-    //   key_id: integrationKeys.key_id,
-    //   key_secret: integrationKeys.key_secret,
-    // });
-
     const razorpay = new Razorpay({
-      key_id: "rzp_live_hn0hFtLPIXAy4d",
-      key_secret: "jpQD4A2rfc08bX1CGO6Udq1v",
+      key_id: integrationKeys.key_id,
+      key_secret: integrationKeys.key_secret,
     });
+
     // const txnRefId = generateTxnRefId();
     const merchantOrderId = generateMerchantOrderId();
     const razorpayTxnId = `RAZ${Date.now()}`;
