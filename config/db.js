@@ -16,6 +16,7 @@ const connectDB = async () => {
       bufferCommands: false,
       serverSelectionTimeoutMS: 5000,
     });
+    console.log("✅ MongoDB Connected");
   }
 
   cached.conn = await cached.promise;

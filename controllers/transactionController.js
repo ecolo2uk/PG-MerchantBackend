@@ -183,7 +183,7 @@ const generateRazorpayQR = async (transactionData, integrationKeys) => {
     });
 
     // 3️⃣ Prepare expiry timestamp
-    // const closeBy = Math.floor(Date.now() / 1000) + durationInMinutes * 60;
+    const closeBy = Math.floor(Date.now() / 1000) + 3 * 60;
 
     // 4️⃣ Prepare payload (amount OR no amount)
     let payload = {
@@ -191,7 +191,7 @@ const generateRazorpayQR = async (transactionData, integrationKeys) => {
       name: transactionData.merchantName,
       description: transactionData.txnNote || "",
       // customer_id: transactionData.txnRefId || "",
-      // close_by: closeBy,
+      close_by: closeBy,
     };
 
     if (transactionData.amount) {
@@ -2614,14 +2614,20 @@ export const generateRazorpayPayment = async ({
       );
     }
 
-    const razorpay = new Razorpay({
-      key_id: integrationKeys.key_id,
-      key_secret: integrationKeys.key_secret,
-    });
+    // const razorpay = new Razorpay({
+    //   key_id: integrationKeys.key_id,
+    //   key_secret: integrationKeys.key_secret,
+    // });
 
+    const razorpay = new Razorpay({
+      key_id: "rzp_live_hn0hFtLPIXAy4d",
+      key_secret: "jpQD4A2rfc08bX1CGO6Udq1v",
+    });
     // const txnRefId = generateTxnRefId();
     const merchantOrderId = generateMerchantOrderId();
     const razorpayTxnId = `RAZ${Date.now()}`;
+
+    const expireBy = Math.floor(Date.now() / 1000) + 15 * 60; // 3 minutes from now
 
     const paymentLinkPayload = {
       upi_link: "true",
@@ -2632,7 +2638,7 @@ export const generateRazorpayPayment = async ({
       description: `Payment for ${
         merchant.company || `${merchant.firstname} ${merchant.lastname || ""}`
       }`,
-
+      expire_by: expireBy,
       customer: {
         name: `${merchant.firstname} ${merchant.lastname || ""}`,
         email: merchant.email || "",
