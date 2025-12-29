@@ -191,10 +191,10 @@ const generateRazorpayQR = async (transactionData, integrationKeys) => {
       name: transactionData.merchantName,
       description: transactionData.txnNote || "",
       // customer_id: transactionData.txnRefId || "",
-      close_by: closeBy,
     };
 
     if (transactionData.amount) {
+      payload.close_by = closeBy;
       payload.usage = "single_use";
       payload.fixed_amount = true;
       payload.payment_amount = transactionData.amount * 100; // paise
@@ -2623,7 +2623,7 @@ export const generateRazorpayPayment = async ({
     const merchantOrderId = generateMerchantOrderId();
     const razorpayTxnId = `RAZ${Date.now()}`;
 
-    const expireBy = Math.floor(Date.now() / 1000) + 15 * 60; // 3 minutes from now
+    const expireBy = Math.floor(Date.now() / 1000) + 16 * 60; // 3 minutes from now
 
     const paymentLinkPayload = {
       upi_link: "true",
