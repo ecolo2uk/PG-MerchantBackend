@@ -10,6 +10,7 @@ import transactionRoutes from "./routes/transactionRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import webhookRoutes from "./routes/webhook.js";
 import merchantRoutes from "./routes/merchant.js";
+import payoutRoutes from "./routes/payoutRoutes.js";
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.use("/api/merchant/auth", merchantAuthRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/merchant", merchantRoutes);
+app.use("/api/payout", payoutRoutes);
 app.use("/api", webhookRoutes);
 
 export default async function handler(req, res) {

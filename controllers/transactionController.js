@@ -9,6 +9,9 @@ import User from "../models/User.js";
 import Merchant from "../models/Merchant.js";
 // const Razorpay = require("razorpay");
 import Razorpay from "razorpay";
+import { isJWTFormat } from "../utils/isJWTFormat.js";
+import { todayFilter } from "../utils/todayFilter.js";
+import PayoutTransaction from "../models/PayoutTransaction.js";
 
 // Generate unique IDs
 const generateTransactionId = () =>
@@ -17,23 +20,6 @@ const generateEnpayTransactionId = () =>
   `DYNAMIC${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
 const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:5001";
-
-const todayFilter = () => {
-  const now = new Date();
-
-  let start, end;
-  start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-
-  return {
-    createdAt: {
-      $gte: start,
-      $lte: end,
-    },
-  };
-};
 
 const formatDateForExcel = (date) => {
   return new Date(date).toLocaleString("en-IN", {
@@ -45,42 +31,6 @@ const formatDateForExcel = (date) => {
     hour12: true,
   });
 };
-
-const isJWTFormat = (token) => {
-  if (typeof token !== "string") return false;
-
-  const parts = token.split(".");
-  if (parts.length !== 3) return false;
-
-  const base64UrlRegex = /^[A-Za-z0-9-_]+$/;
-
-  // ✅ Validate HEADER & PAYLOAD only
-  for (let i = 0; i < 2; i++) {
-    const part = parts[i];
-
-    if (!base64UrlRegex.test(part)) return false;
-
-    try {
-      // Convert Base64URL → Base64
-      const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
-      const decoded = JSON.parse(
-        Buffer.from(base64, "base64").toString("utf8")
-      );
-
-      if (typeof decoded !== "object") return false;
-    } catch {
-      return false;
-    }
-  }
-
-  // ✅ Signature: ONLY Base64URL check (NO JSON parse)
-  if (!base64UrlRegex.test(parts[2])) return false;
-
-  return true;
-};
-
-// Usage
-// console.log(isJWTFormat("your.token.here")); // true or false
 
 export const getMerchantConnectorAccount = async (merchantId) => {
   try {
@@ -446,7 +396,7 @@ export const generateDynamicQR = async (req, res) => {
     }
 
     const merchantId = req.user?.id || req.user?._id;
-    const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
+    // const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
 
     if (!merchantId) {
       await session.abortTransaction();
@@ -478,18 +428,32 @@ export const generateDynamicQR = async (req, res) => {
         message: "Merchant not found",
       });
     }
+    const merchantName =
+      user.company || user?.firstname + " " + (user?.lastname || "");
 
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
 
-    const transactionLimit = await Transaction.find({
-      merchantId,
+    let totalTransactionsCount = 0;
+
+    let PayinCount = await Transaction.find({
+      merchantId: user._id,
+      ...dateFilter,
+    }).session(session);
+    // console.log(PayinCount.length, "payin count");
+    totalTransactionsCount += PayinCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
+
+    let PayoutCount = await PayoutTransaction.find({
+      merchantId: user._id,
       ...dateFilter,
     }).session(session);
 
-    // console.log(transactionLimit.length, "transactionLimit");
+    // console.log(PayoutCount.length, "payout count");
+    totalTransactionsCount += PayoutCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
 
-    const used = Number(transactionLimit?.length || 0);
+    const used = Number(totalTransactionsCount);
     const limit = Number(user?.transactionLimit || 0);
 
     if (user.transactionLimit) {
@@ -907,20 +871,32 @@ export const generateDynamicQRTransaction = async (req, res) => {
       await session.abortTransaction();
       return res.status(500).json({
         success: false,
-        message: "Merchant not found",
+        message: "Merchant Not found",
       });
     }
 
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
-    const transactionLimit = await Transaction.find({
+    let totalTransactionsCount = 0;
+
+    let PayinCount = await Transaction.find({
+      merchantId: user._id,
+      ...dateFilter,
+    }).session(session);
+    // console.log(PayinCount.length, "payin count");
+    totalTransactionsCount += PayinCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
+
+    let PayoutCount = await PayoutTransaction.find({
       merchantId: user._id,
       ...dateFilter,
     }).session(session);
 
-    // console.log(transactionLimit.length, "transactionLimit");
+    // console.log(PayoutCount.length, "payout count");
+    totalTransactionsCount += PayoutCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
 
-    const used = Number(transactionLimit?.length || 0);
+    const used = Number(totalTransactionsCount);
     const limit = Number(user?.transactionLimit || 0);
 
     if (user.transactionLimit) {
@@ -947,7 +923,9 @@ export const generateDynamicQRTransaction = async (req, res) => {
     }
 
     const merchantId = user._id;
-    const merchantName = user?.firstname + " " + (user?.lastname || "");
+    // const merchantName = user?.firstname + " " + (user?.lastname || "");
+    const merchantName =
+      user.company || user?.firstname + " " + (user?.lastname || "");
 
     const { txnRefId, amount, txnNote = "" } = req.body;
 
@@ -1650,7 +1628,7 @@ export const generateDefaultQR = async (req, res) => {
     session.startTransaction();
 
     const merchantId = req.user?.id || req.user?._id;
-    const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
+    // const merchantName = req.user?.firstname + " " + (req.user?.lastname || "");
 
     if (!merchantId) {
       await session.abortTransaction();
@@ -1682,18 +1660,32 @@ export const generateDefaultQR = async (req, res) => {
         message: "Merchant not found",
       });
     }
+    const merchantName =
+      user.company || user?.firstname + " " + (user?.lastname || "");
 
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
 
-    const transactionLimit = await Transaction.find({
-      merchantId,
+    let totalTransactionsCount = 0;
+
+    let PayinCount = await Transaction.find({
+      merchantId: user._id,
+      ...dateFilter,
+    }).session(session);
+    // console.log(PayinCount.length, "payin count");
+    totalTransactionsCount += PayinCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
+
+    let PayoutCount = await PayoutTransaction.find({
+      merchantId: user._id,
       ...dateFilter,
     }).session(session);
 
-    // console.log(transactionLimit.length, "transactionLimit");
+    // console.log(PayoutCount.length, "payout count");
+    totalTransactionsCount += PayoutCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
 
-    const used = Number(transactionLimit?.length || 0);
+    const used = Number(totalTransactionsCount);
     const limit = Number(user?.transactionLimit || 0);
 
     if (user.transactionLimit) {
@@ -2069,14 +2061,26 @@ export const generateDefaultQRTransaction = async (req, res) => {
     }
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
-    const transactionLimit = await Transaction.find({
+    let totalTransactionsCount = 0;
+
+    let PayinCount = await Transaction.find({
+      merchantId: user._id,
+      ...dateFilter,
+    }).session(session);
+    // console.log(PayinCount.length, "payin count");
+    totalTransactionsCount += PayinCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
+
+    let PayoutCount = await PayoutTransaction.find({
       merchantId: user._id,
       ...dateFilter,
     }).session(session);
 
-    // console.log(transactionLimit.length, "transactionLimit");
+    // console.log(PayoutCount.length, "payout count");
+    totalTransactionsCount += PayoutCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
 
-    const used = Number(transactionLimit?.length || 0);
+    const used = Number(totalTransactionsCount);
     const limit = Number(user?.transactionLimit || 0);
 
     if (user.transactionLimit) {
@@ -2677,7 +2681,7 @@ export const generateRazorpayPayment = async ({
 
 export const generatePaymentLinkTransaction = async (req, res) => {
   const startTime = Date.now();
-  console.log("🚀 generatePaymentLink STARTED", req.body);
+  // console.log("🚀 generatePaymentLink STARTED", req.body);
   const session = await mongoose.startSession();
 
   try {
@@ -2762,14 +2766,26 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     const dateFilter = todayFilter();
     // console.log(dateFilter, user._id, user.transactionLimit);
-    const transactionLimit = await Transaction.find({
+    let totalTransactionsCount = 0;
+
+    let PayinCount = await Transaction.find({
+      merchantId: user._id,
+      ...dateFilter,
+    }).session(session);
+    // console.log(PayinCount.length, "payin count");
+    totalTransactionsCount += PayinCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
+
+    let PayoutCount = await PayoutTransaction.find({
       merchantId: user._id,
       ...dateFilter,
     }).session(session);
 
-    // console.log(transactionLimit.length, "transactionLimit");
+    // console.log(PayoutCount.length, "payout count");
+    totalTransactionsCount += PayoutCount.length;
+    // console.log(totalTransactionsCount, "transaction Count");
 
-    const used = Number(transactionLimit?.length || 0);
+    const used = Number(totalTransactionsCount);
     const limit = Number(user?.transactionLimit || 0);
 
     if (user.transactionLimit) {
