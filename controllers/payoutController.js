@@ -932,8 +932,8 @@ export const checkPayoutTransactionStatus = async (req, res) => {
     if (!user) {
       await session.abortTransaction();
       return res
-        .status(400)
-        .json({ success: false, message: "Merchnat Not found" });
+        .status(404)
+        .json({ success: false, message: "Merchant Not found" });
     }
 
     const isMatch = await bcrypt.compare(decoded.password, user.password);
@@ -1106,7 +1106,7 @@ export const checkBalance = async (req, res) => {
       await session.abortTransaction();
       return res
         .status(400)
-        .json({ success: false, message: "Merchnat Not found" });
+        .json({ success: false, message: "Merchant Not found" });
     }
 
     const isMatch = await bcrypt.compare(decoded.password, user.password);
@@ -1123,7 +1123,7 @@ export const checkBalance = async (req, res) => {
     // console.log(merchant);
     if (!merchant) {
       await session.abortTransaction();
-      return res.status(500).json({
+      return res.status(404).json({
         success: false,
         message: "Merchant Not found",
       });
