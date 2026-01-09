@@ -10,15 +10,15 @@ const payoutTransactionSchema = new mongoose.Schema(
     },
     utr: {
       type: String,
-      unique: true,
-      sparse: true,
+    },
+    requestId: {
+      type: String,
     },
     transactionId: {
       type: String,
       unique: true,
       sparse: true,
     },
-
     merchantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -83,7 +83,7 @@ const payoutTransactionSchema = new mongoose.Schema(
 
     amount: {
       type: Number,
-      required: true,
+      // required: true,
     },
     currency: {
       type: String,
@@ -91,8 +91,8 @@ const payoutTransactionSchema = new mongoose.Schema(
     },
     paymentMode: {
       type: String,
-      required: true,
-      enum: ["IMPS", "NEFT", "RTGS", "Bank Transfer", "Wallet Transfer"],
+      // required: true,
+      // enum: ["IMPS", "NEFT", "RTGS", "Bank Transfer", "Wallet Transfer"],
     },
     transactionType: {
       type: String,
@@ -103,14 +103,20 @@ const payoutTransactionSchema = new mongoose.Schema(
       type: String,
       enum: [
         "Pending",
+        "PENDING",
         "Success",
+        "REVERSED",
+        "SUCCESS",
         "Failed",
-        "Initiated",
-        "Processing",
+        "FAILED",
+        "INITIATED",
+        "Processed",
         "Cancelled",
       ],
       default: "Pending",
     },
+    error: String,
+    payoutEnquiryId: String,
 
     connectorId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -241,6 +247,8 @@ payoutTransactionSchema.index(
   },
   { background: true }
 );
+
+payoutTransactionSchema.index({ requestId: 1 }, { unique: true });
 
 const PayoutTransaction = mongoose.model(
   "PayoutTransaction",

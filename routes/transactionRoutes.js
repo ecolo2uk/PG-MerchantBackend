@@ -14,7 +14,6 @@ import {
   exportSalesToExcel,
 } from "../controllers/transactionController.js";
 import { authenticateMerchant } from "../middleware/authMiddleware.js";
-
 const router = express.Router();
 
 router.get("/", authenticateMerchant, getTransactions);
