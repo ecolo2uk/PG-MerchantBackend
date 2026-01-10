@@ -183,7 +183,7 @@ const transactionSchema = new mongoose.Schema(
       default: "",
     },
 
-    // cfError: String,
+    cfError: String,
     cfResponse: mongoose.Schema.Types.Mixed,
     cfTransactionStatus: String,
     cfInitiationStatus: {
@@ -211,7 +211,7 @@ const transactionSchema = new mongoose.Schema(
       default: "",
     },
 
-    // razorPayError: String,
+    razorPayError: String,
     razorPayResponse: mongoose.Schema.Types.Mixed,
     razorPayTransactionStatus: String,
     razorPayInitiationStatus: {
@@ -247,7 +247,7 @@ const transactionSchema = new mongoose.Schema(
       default: "",
     },
 
-    // enpayError: String,
+    enpayError: String,
     enpayResponse: mongoose.Schema.Types.Mixed,
     enpayTransactionStatus: String,
 
