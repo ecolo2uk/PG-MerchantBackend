@@ -54,9 +54,25 @@ const payoutTransactionSchema = new mongoose.Schema(
       type: String,
       default: "N/A",
     },
+
+    // =========================
+    // CONNECTOR INFO
+    // =========================
+    connectorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Connector",
+    },
+    connectorAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ConnectorAccount",
+    },
     connector: {
       type: String,
       default: "Manual",
+    },
+    terminalId: {
+      type: String,
+      default: "N/A",
     },
     webhook: {
       type: String,

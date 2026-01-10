@@ -9,9 +9,11 @@ import Transaction from "../models/Transaction.js";
 import PayoutTransaction from "../models/PayoutTransaction.js";
 import axios from "axios";
 
-const encryptData = async (reqBody) => {
+const encryptData = async (reqBody, connectorAccount) => {
   try {
-    const encrypt_key = process.env.PAYOUT_ENCRYPTION_KEY;
+    const keys = connectorAccount.extractedKeys || {};
+
+    const encrypt_key = keys["encryption_key"];
 
     if (!encrypt_key) {
       throw new Error("Encryption key not found.");
@@ -43,9 +45,11 @@ const encryptData = async (reqBody) => {
   }
 };
 
-const decryptData = async (encData) => {
+const decryptData = async (encData, connectorAccount) => {
   try {
-    const encrypt_key = process.env.PAYOUT_ENCRYPTION_KEY;
+    const keys = connectorAccount.extractedKeys || {};
+
+    const encrypt_key = keys["encryption_key"];
 
     if (!encrypt_key) {
       throw new Error("Decryption key not found.");
@@ -87,9 +91,12 @@ const decryptData = async (encData) => {
   }
 };
 
-export const payoutInitiate = async (encryptedData) => {
+export const payoutInitiate = async (encryptedData, connectorAccount) => {
   try {
-    const header_key = process.env.PAYOUT_HEADER_KEY;
+    const keys = connectorAccount.extractedKeys || {};
+
+    const header_key = keys["header_key"];
+
     if (!header_key) {
       throw new Error("Header key not found");
     }
@@ -130,9 +137,15 @@ export const payoutInitiate = async (encryptedData) => {
   }
 };
 
-export const payoutTransactionStatus = async (encryptedData) => {
+export const payoutTransactionStatus = async (
+  encryptedData,
+  connectorAccount
+) => {
   try {
-    const header_key = process.env.PAYOUT_HEADER_KEY;
+    const keys = connectorAccount.extractedKeys || {};
+
+    const header_key = keys["header_key"];
+
     if (!header_key) {
       throw new Error("Header key not found");
     }
@@ -218,6 +231,52 @@ const failTransaction = async (
     );
   }
 };
+
+function extractIntegrationKeys(connectorAccount) {
+  // console.log("🔍 Extracting integration keys from:", {
+  //   hasIntegrationKeys: !!connectorAccount?.integrationKeys,
+  //   hasConnectorAccountId:
+  //     !!connectorAccount?.connectorAccount?.integrationKeys,
+  //   connectorAccount: connectorAccount?.connectorAccount?._id,
+  // });
+
+  let integrationKeys = {};
+
+  // ✅ Check multiple possible locations for integration keys
+  if (
+    connectorAccount?.integrationKeys &&
+    Object.keys(connectorAccount.integrationKeys).length > 0
+  ) {
+    // console.log("🎯 Found keys in connectorAccount.integrationKeys");
+    integrationKeys = connectorAccount.integrationKeys;
+  } else if (
+    connectorAccount?.connectorAccount?.integrationKeys &&
+    Object.keys(connectorAccount.connectorAccount.integrationKeys).length > 0
+  ) {
+    // console.log(
+    //   "🎯 Found keys in connectorAccount.connectorAccount.integrationKeys"
+    // );
+    integrationKeys = connectorAccount.connectorAccount.integrationKeys;
+  } else {
+    console.log("⚠️ No integration keys found in standard locations");
+  }
+
+  // ✅ Convert if it's a Map or special object
+  if (integrationKeys instanceof Map) {
+    integrationKeys = Object.fromEntries(integrationKeys);
+    // console.log("🔍 Converted Map to Object");
+  } else if (typeof integrationKeys === "string") {
+    try {
+      integrationKeys = JSON.parse(integrationKeys);
+      // console.log("🔍 Parsed JSON string to Object");
+    } catch (e) {
+      console.error("❌ Failed to parse integrationKeys string:", e);
+    }
+  }
+
+  // console.log("🎯 Extracted Keys:", Object.keys(integrationKeys));
+  return integrationKeys;
+}
 
 export const initiatePayoutTransaction = async (req, res) => {
   const session = await mongoose.startSession();
@@ -327,7 +386,7 @@ export const initiatePayoutTransaction = async (req, res) => {
       amount,
     } = req.body || {};
 
-    // console.log("📦 Creating payout with data:", req.body);
+    console.log("📦 Creating payout to merchant");
     payoutAmount = amount;
     // Create Payout Transaction with ALL required fields
     const newPayout = {
@@ -366,6 +425,8 @@ export const initiatePayoutTransaction = async (req, res) => {
     });
 
     // console.log("✅ Payout created successfully:", savedTransaction._id);
+
+    /* ===================== VALIDATION ===================== */
 
     if (!amount) {
       await failTransaction(
@@ -431,8 +492,6 @@ export const initiatePayoutTransaction = async (req, res) => {
       });
     }
     balanceBlocked = true;
-
-    /* ===================== VALIDATION ===================== */
 
     if (!requestId) {
       await failTransaction(
@@ -562,17 +621,94 @@ export const initiatePayoutTransaction = async (req, res) => {
         message: "Payment Mode cannot be blank",
       });
     }
+    // Find Active Connector Account
+    const [activeAccount] = await mongoose.connection.db
+      .collection("merchantpayoutconnectoraccounts")
+      .aggregate([
+        {
+          $match: {
+            merchantId: new mongoose.Types.ObjectId(merchantId),
+            isPrimary: true,
+            status: "Active",
+          },
+        },
+        {
+          $lookup: {
+            from: "connectors",
+            localField: "connectorId",
+            foreignField: "_id",
+            as: "connector",
+          },
+        },
+        {
+          $lookup: {
+            from: "connectoraccounts",
+            localField: "connectorAccountId",
+            foreignField: "_id",
+            as: "connectorAccount",
+          },
+        },
+        { $unwind: "$connector" },
+        { $unwind: "$connectorAccount" },
+      ])
+      .toArray();
 
-    const encryptedResponse = await encryptData({
-      requestId,
-      beneficiary_account_number,
-      beneficiary_bank_ifsc,
-      beneficiary_bank_name,
-      beneficiary_name,
-      payment_mode,
-      txn_note,
-      amount: payoutAmount,
-    });
+    // console.log(activeAccount);
+
+    if (!activeAccount) {
+      await failTransaction(
+        savedTransaction._id,
+        merchantId,
+        "No payment connector configured. Please contact admin."
+      );
+      // console.log("❌ No connector account found for merchant");
+      return res.status(400).json({
+        success: false,
+        message: "No payment connector configured. Please contact admin.",
+        needsSetup: true,
+      });
+    }
+
+    const connectorName = activeAccount.connector?.name.toLowerCase();
+
+    // console.log("🎯 Using Connector:", connectorName);
+
+    // Extract keys using helper function
+    const integrationKeys = extractIntegrationKeys(activeAccount);
+    // console.log("🎯 Keys:", integrationKeys);
+
+    activeAccount.extractedKeys = integrationKeys;
+
+    const connectorMeta = {
+      connectorAccountId: activeAccount.connectorAccount?._id,
+      connectorId: activeAccount.connector?._id,
+      terminalId: activeAccount.terminalId || "N/A",
+      connector: connectorName,
+      updatedAt: new Date(),
+    };
+
+    // console.log(connectorMeta, savedTransaction._id);
+
+    const updatedPayout = await PayoutTransaction.findByIdAndUpdate(
+      savedTransaction._id,
+      connectorMeta,
+      { session }
+    );
+    // console.log(updatedPayout, savedTransaction._id);
+
+    const encryptedResponse = await encryptData(
+      {
+        requestId,
+        beneficiary_account_number,
+        beneficiary_bank_ifsc,
+        beneficiary_bank_name,
+        beneficiary_name,
+        payment_mode,
+        txn_note,
+        amount: payoutAmount,
+      },
+      activeAccount
+    );
     // console.log(encryptedResponse.data, "Enc res");
 
     const encryptedPayload = encryptedResponse.data;
@@ -599,7 +735,7 @@ export const initiatePayoutTransaction = async (req, res) => {
 
     const encData = encryptedPayload.data.encData;
 
-    const payoutResponse = await payoutInitiate(encData);
+    const payoutResponse = await payoutInitiate(encData, activeAccount);
     // console.log(payoutResponse, "Payout res");
 
     if (!payoutResponse.success || payoutResponse.data.responseCode !== "0") {
@@ -621,7 +757,7 @@ export const initiatePayoutTransaction = async (req, res) => {
     const payoutData = payoutResponse.data;
     // console.log("✅ Payout data:", payoutData);
 
-    const decryptedResponse = await decryptData(payoutData.data);
+    const decryptedResponse = await decryptData(payoutData.data, activeAccount);
     // console.log(decryptedResponse.data, "Dec res");
 
     if (
@@ -664,11 +800,14 @@ export const initiatePayoutTransaction = async (req, res) => {
 
     const data = decData.data;
 
-    const encryptedStatusResponse = await encryptData({
-      requestId,
-      txnId: data.txnId,
-      enquiryId: "",
-    });
+    const encryptedStatusResponse = await encryptData(
+      {
+        requestId,
+        txnId: data.txnId,
+        enquiryId: "",
+      },
+      activeAccount
+    );
     // console.log(encryptedStatusResponse.data, "Enc res");
 
     const encryptedStatusPayload = encryptedStatusResponse.data;
@@ -695,7 +834,10 @@ export const initiatePayoutTransaction = async (req, res) => {
 
     const encStatusData = encryptedStatusPayload.data.encData;
 
-    const checkStatusRes = await payoutTransactionStatus(encStatusData);
+    const checkStatusRes = await payoutTransactionStatus(
+      encStatusData,
+      activeAccount
+    );
     // console.log(checkStatusRes.data, "Payout res");
 
     if (checkStatusRes.data.responseCode !== "0") {
@@ -718,7 +860,10 @@ export const initiatePayoutTransaction = async (req, res) => {
 
     const statusData = checkStatusRes.data;
 
-    const decryptedStatusResponse = await decryptData(statusData.data);
+    const decryptedStatusResponse = await decryptData(
+      statusData.data,
+      activeAccount
+    );
     // console.log(decryptedResponse.data, "Dec res");
 
     if (
@@ -760,12 +905,16 @@ export const initiatePayoutTransaction = async (req, res) => {
           { userId: merchantId },
           {
             $inc: {
-              blockedBalance: -payoutAmount,
               totalTransactions: 1,
               payoutTransactions: 1,
+              blockedBalance: -payoutAmount,
+              totalDebits: payoutAmount,
+              totalLastNetPayOut: payoutAmount,
               successfulTransactions: 1,
             },
-            $set: { lastPayoutTransactions: savedTransaction._id },
+            $set: {
+              lastPayoutTransactions: savedTransaction._id,
+            },
           },
           { session }
         ),
@@ -875,46 +1024,22 @@ export const checkPayoutTransactionStatus = async (req, res) => {
   // console.log(
   //   "Checking Payout Transaction Status"
   // );
-  const session = await mongoose.startSession();
 
   try {
-    session.startTransaction();
-    const authHeader =
-      req.headers["authorization"] || req.headers["Authorization"];
-
-    if (!authHeader) {
-      await session.abortTransaction();
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
       return res
         .status(401)
         .json({ success: false, message: "No token provided" });
     }
 
-    // Split 'Bearer TOKEN' → get the actual token
-    const token = authHeader.split(" ")[1];
-
-    if (!token) {
-      await session.abortTransaction();
-      return res
-        .status(401)
-        .json({ success: false, message: "Token malformed" });
-    }
-    // console.log("Token received:", token);
-
-    // ✅ Check if token is in valid JWT format
-    if (!isJWTFormat(token)) {
-      await session.abortTransaction();
-      return res.status(401).json({
-        success: false,
-        message: "Invalid authorization token format",
-      });
-    }
-
     let decoded;
-
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+      decoded = jwt.verify(
+        authHeader.split(" ")[1],
+        process.env.JWT_SECRET || "mysecretkey"
+      );
     } catch (err) {
-      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message:
@@ -925,44 +1050,80 @@ export const checkPayoutTransactionStatus = async (req, res) => {
     }
     // console.log("Decoded payload:", decoded);
 
-    let user;
-    if (decoded)
-      user = await User.findOne({ _id: decoded.userId }).session(session);
+    const merchantId = new mongoose.Types.ObjectId(decoded.userId);
 
-    if (!user) {
-      await session.abortTransaction();
+    const [user, merchant] = await Promise.all([
+      User.findById(merchantId).lean(),
+      Merchant.findOne({ userId: merchantId }).lean(),
+    ]);
+
+    if (!user || !merchant) {
       return res
         .status(404)
-        .json({ success: false, message: "Merchant Not found" });
+        .json({ success: false, message: "Merchant not found" });
     }
 
-    const isMatch = await bcrypt.compare(decoded.password, user.password);
-    if (!isMatch) {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
-    }
-
-    const merchant = await Merchant.findOne({ userId: user._id }).session(
-      session
-    );
-    // console.log(merchant);
-    if (!merchant) {
-      await session.abortTransaction();
-      return res.status(500).json({
-        success: false,
-        message: "Merchant Not found",
-      });
-    }
-
-    if (!req.body) {
-      await session.abortTransaction();
+    /* ===================== BCRYPT ===================== */
+    const passwordMatch = await bcrypt.compare(decoded.password, user.password);
+    if (!passwordMatch) {
       return res.status(400).json({
         success: false,
-        message: "Request is empty",
+        message: "Invalid merchant token",
       });
     }
+
+    // Find Active Connector Account
+    const [activeAccount] = await mongoose.connection.db
+      .collection("merchantpayoutconnectoraccounts")
+      .aggregate([
+        {
+          $match: {
+            merchantId: new mongoose.Types.ObjectId(merchantId),
+            isPrimary: true,
+            status: "Active",
+          },
+        },
+        {
+          $lookup: {
+            from: "connectors",
+            localField: "connectorId",
+            foreignField: "_id",
+            as: "connector",
+          },
+        },
+        {
+          $lookup: {
+            from: "connectoraccounts",
+            localField: "connectorAccountId",
+            foreignField: "_id",
+            as: "connectorAccount",
+          },
+        },
+        { $unwind: "$connector" },
+        { $unwind: "$connectorAccount" },
+      ])
+      .toArray();
+
+    // console.log(activeAccount);
+
+    if (!activeAccount) {
+      // console.log("❌ No connector account found for merchant");
+      return res.status(400).json({
+        success: false,
+        message: "No payment connector configured. Please contact admin.",
+        needsSetup: true,
+      });
+    }
+
+    const connectorName = activeAccount.connector?.name.toLowerCase();
+
+    // console.log("🎯 Using Connector:", connectorName);
+
+    // Extract keys using helper function
+    const integrationKeys = extractIntegrationKeys(activeAccount);
+    // console.log("🎯 Keys:", integrationKeys);
+
+    activeAccount.extractedKeys = integrationKeys;
 
     const { requestId, txnId, enquiryId } = req.body;
 
@@ -970,7 +1131,6 @@ export const checkPayoutTransactionStatus = async (req, res) => {
 
     // Validate required fields
     if (!requestId) {
-      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "RequestId cannot be blank",
@@ -978,14 +1138,13 @@ export const checkPayoutTransactionStatus = async (req, res) => {
     }
 
     if (!txnId) {
-      await session.abortTransaction();
       return res.status(400).json({
         success: false,
         message: "Transaction Id cannot be blank",
       });
     }
 
-    const encryptedResponse = await encryptData(req.body);
+    const encryptedResponse = await encryptData(req.body, activeAccount);
     // console.log(encryptedResponse.data, "Enc res");
 
     if (!encryptedResponse.success) {
@@ -1000,7 +1159,10 @@ export const checkPayoutTransactionStatus = async (req, res) => {
     }
     const encData = encryptedPayload.data.encData;
 
-    const checkStatusRes = await payoutTransactionStatus(encData);
+    const checkStatusRes = await payoutTransactionStatus(
+      encData,
+      activeAccount
+    );
     // console.log(checkStatusRes.data, "Payout res");
 
     if (checkStatusRes.data.responseCode !== "0") {
@@ -1011,7 +1173,7 @@ export const checkPayoutTransactionStatus = async (req, res) => {
 
     const statusData = checkStatusRes.data;
 
-    const decryptedResponse = await decryptData(statusData.data);
+    const decryptedResponse = await decryptData(statusData.data, activeAccount);
     // console.log(decryptedResponse.data, "Dec res");
 
     if (!decryptedResponse.success) {
@@ -1035,59 +1197,30 @@ export const checkPayoutTransactionStatus = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error fetching payout status:", error);
-    await session.abortTransaction();
-
     // More detailed error information
     res.status(500).json({
       success: false,
       message: error.message,
     });
-  } finally {
-    session.endSession();
   }
 };
 
 export const checkBalance = async (req, res) => {
-  const session = await mongoose.startSession();
-
   try {
-    session.startTransaction();
-    const authHeader =
-      req.headers["authorization"] || req.headers["Authorization"];
-
-    if (!authHeader) {
-      await session.abortTransaction();
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
       return res
         .status(401)
         .json({ success: false, message: "No token provided" });
     }
 
-    // Split 'Bearer TOKEN' → get the actual token
-    const token = authHeader.split(" ")[1];
-
-    if (!token) {
-      await session.abortTransaction();
-      return res
-        .status(401)
-        .json({ success: false, message: "Token malformed" });
-    }
-    // console.log("Token received:", token);
-
-    // ✅ Check if token is in valid JWT format
-    if (!isJWTFormat(token)) {
-      await session.abortTransaction();
-      return res.status(401).json({
-        success: false,
-        message: "Invalid authorization token format",
-      });
-    }
-
     let decoded;
-
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || "mysecretkey");
+      decoded = jwt.verify(
+        authHeader.split(" ")[1],
+        process.env.JWT_SECRET || "mysecretkey"
+      );
     } catch (err) {
-      await session.abortTransaction();
       return res.status(401).json({
         success: false,
         message:
@@ -1098,34 +1231,25 @@ export const checkBalance = async (req, res) => {
     }
     // console.log("Decoded payload:", decoded);
 
-    let user;
-    if (decoded)
-      user = await User.findOne({ _id: decoded.userId }).session(session);
+    const merchantId = new mongoose.Types.ObjectId(decoded.userId);
 
-    if (!user) {
-      await session.abortTransaction();
+    const [user, merchant] = await Promise.all([
+      User.findById(merchantId).lean(),
+      Merchant.findOne({ userId: merchantId }).lean(),
+    ]);
+
+    if (!user || !merchant) {
       return res
-        .status(400)
-        .json({ success: false, message: "Merchant Not found" });
+        .status(404)
+        .json({ success: false, message: "Merchant not found" });
     }
 
-    const isMatch = await bcrypt.compare(decoded.password, user.password);
-    if (!isMatch) {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid merchant token" }); // Use a generic message for security
-    }
-
-    const merchant = await Merchant.findOne({ userId: user._id }).session(
-      session
-    );
-    // console.log(merchant);
-    if (!merchant) {
-      await session.abortTransaction();
-      return res.status(404).json({
+    /* ===================== BCRYPT ===================== */
+    const passwordMatch = await bcrypt.compare(decoded.password, user.password);
+    if (!passwordMatch) {
+      return res.status(400).json({
         success: false,
-        message: "Merchant Not found",
+        message: "Invalid merchant token",
       });
     }
 
@@ -1137,14 +1261,11 @@ export const checkBalance = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error fetching payout status:", error);
-    await session.abortTransaction();
 
     // More detailed error information
     res.status(500).json({
       success: false,
       message: error.message,
     });
-  } finally {
-    session.endSession();
   }
 };
