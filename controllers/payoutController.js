@@ -369,7 +369,7 @@ export const initiatePayoutTransaction = async (req, res) => {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: "Request is empty",
+        message: "Request body is empty.",
       });
     }
 
@@ -1072,6 +1072,26 @@ export const checkPayoutTransactionStatus = async (req, res) => {
       });
     }
 
+    if (!req.body) {
+      return res.status(403).json({
+        success: false,
+        message: "Request body is empty.",
+      });
+    }
+
+    const { requestId, txnId, enquiryId } = req.body;
+
+    const [txn] = await Promise.all([
+      PayoutTransaction.findOne({ requestId }).lean(),
+    ]);
+
+    if (!txn) {
+      return res.status(400).json({
+        success: false,
+        message: "Transaction not found",
+      });
+    }
+
     // Find Active Connector Account
     const [activeAccount] = await mongoose.connection.db
       .collection("merchantpayoutconnectoraccounts")
@@ -1079,7 +1099,8 @@ export const checkPayoutTransactionStatus = async (req, res) => {
         {
           $match: {
             merchantId: new mongoose.Types.ObjectId(merchantId),
-            isPrimary: true,
+            // isPrimary: true,
+            connectorAccountId: txn.connectorAccountId,
             status: "Active",
           },
         },
@@ -1125,8 +1146,6 @@ export const checkPayoutTransactionStatus = async (req, res) => {
 
     activeAccount.extractedKeys = integrationKeys;
 
-    const { requestId, txnId, enquiryId } = req.body;
-
     // console.log("Transaction Req:", req.body);
 
     // Validate required fields
@@ -1140,7 +1159,7 @@ export const checkPayoutTransactionStatus = async (req, res) => {
     if (!txnId) {
       return res.status(400).json({
         success: false,
-        message: "Transaction Id cannot be blank",
+        message: "TxnId cannot be blank",
       });
     }
 
@@ -1265,7 +1284,7 @@ export const checkBalance = async (req, res) => {
     // More detailed error information
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "Failed to fetch balance",
     });
   }
 };

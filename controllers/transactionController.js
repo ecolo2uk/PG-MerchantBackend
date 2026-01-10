@@ -413,15 +413,15 @@ export const generateDynamicQR = async (req, res) => {
 
   try {
     // ✅ FIX 1: Check if body exists
-    // if (!Object.keys(req.body).length)
     if (!req.body) {
       console.error("❌ ERROR: req.body is undefined");
       return res.status(400).json({
         success: false,
         message: "Request body is required",
-        error: "req.body is undefined",
+        error: "Request body is undefined",
       });
     }
+
     const merchantId = req.user?.id || req.user?._id;
 
     if (!merchantId) {
@@ -855,6 +855,13 @@ export const generateDynamicQRTransaction = async (req, res) => {
     const transactionId = generateDynamicQRTransactionId();
     // const txnRefId = transactionId; // Use same as transactionId for Enpay
     const merchantOrderId = `ORDER${Date.now()}`;
+
+    if (!Object.keys(req.body).length) {
+      return res.status(403).json({
+        success: false,
+        message: "Request body is empty.",
+      });
+    }
 
     const { txnRefId, amount, txnNote = "" } = req.body;
 
@@ -1822,6 +1829,13 @@ export const generateDefaultQRTransaction = async (req, res) => {
     // const txnRefId = transactionId;
     const merchantOrderId = `ORDER${Date.now()}`;
 
+    if (!Object.keys(req.body).length) {
+      return res.status(403).json({
+        success: false,
+        message: "Request body is empty.",
+      });
+    }
+
     const { txnRefId, txnNote = "" } = req.body;
 
     // Create transaction
@@ -2425,6 +2439,13 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     const merchantName =
       user.company || user?.firstname + " " + (user?.lastname || "");
 
+    if (!Object.keys(req.body).length) {
+      return res.status(403).json({
+        success: false,
+        message: "Request body is empty.",
+      });
+    }
+
     const {
       txnRefId,
       amount,
@@ -2627,7 +2648,7 @@ export const generatePaymentLinkTransaction = async (req, res) => {
         if (error.message === "Duplicate transaction reference Id.") {
           return res.status(400).json({
             success: false,
-            message: "txnRefId already exists.",
+            message: "TxnRefId already exists.",
           });
         }
         return res.status(502).json({
