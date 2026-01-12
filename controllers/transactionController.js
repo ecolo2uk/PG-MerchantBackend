@@ -167,6 +167,7 @@ const failTransaction = async (
       $set: {
         status: "FAILED",
         description: "Payment failed",
+        updatedAt: new Date(),
         txnCompletedDate: new Date(),
       },
     }
@@ -526,7 +527,7 @@ export const generateDynamicQR = async (req, res) => {
       referenceId: savedTransaction._id,
       referenceNo: savedTransaction.transactionId,
       referenceTxnId: txnRefId,
-      description: "Payment link generated",
+      description: "Dynamic QR generated",
       debit: 0,
       credit: 0, // no money yet
       balance: merchant.availableBalance,
@@ -607,6 +608,25 @@ export const generateDynamicQR = async (req, res) => {
     };
 
     await Transaction.findByIdAndUpdate(savedTransaction._id, connectorMeta);
+
+    await TransactionsLog.findOneAndUpdate(
+      {
+        referenceType: "PAYIN",
+        referenceId: savedTransaction._id,
+      },
+      {
+        $set: {
+          connector: {
+            name: connectorName,
+            connectorId: merchantConnectorAccount.connectorDetails._id,
+            connectorAccountId:
+              merchantConnectorAccount.connectorAccDetails._id,
+            gatewayRefId: txnRefId,
+          },
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     let qrResult;
     if (connectorName === "cashfree") {
@@ -752,6 +772,18 @@ export const generateDynamicQR = async (req, res) => {
     const updatedTransaction = await Transaction.findById(
       savedTransaction._id
     ).lean();
+
+    await TransactionsLog.updateOne(
+      { referenceId: savedTransaction._id },
+      {
+        $set: {
+          "connector.gatewayTransactionId":
+            updatedTransaction.gatewayTransactionId,
+          "connector.gatewayOrderId": updatedTransaction.merchantOrderId,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     // console.log(
     //   "✅ Transaction updated successfully:",
@@ -923,7 +955,7 @@ export const generateDynamicQRTransaction = async (req, res) => {
       referenceId: savedTransaction._id,
       referenceNo: savedTransaction.transactionId,
       referenceTxnId: txnRefId,
-      description: "Payment link generated",
+      description: "Dynamic QR generated",
       debit: 0,
       credit: 0, // no money yet
       balance: merchant.availableBalance,
@@ -1037,6 +1069,25 @@ export const generateDynamicQRTransaction = async (req, res) => {
     };
 
     await Transaction.findByIdAndUpdate(savedTransaction._id, connectorMeta);
+
+    await TransactionsLog.findOneAndUpdate(
+      {
+        referenceType: "PAYIN",
+        referenceId: savedTransaction._id,
+      },
+      {
+        $set: {
+          connector: {
+            name: connectorName,
+            connectorId: merchantConnectorAccount.connectorDetails._id,
+            connectorAccountId:
+              merchantConnectorAccount.connectorAccDetails._id,
+            gatewayRefId: txnRefId,
+          },
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     let qrResult;
     if (connectorName === "cashfree") {
@@ -1176,6 +1227,18 @@ export const generateDynamicQRTransaction = async (req, res) => {
     const updatedTransaction = await Transaction.findById(
       savedTransaction._id
     ).lean();
+
+    await TransactionsLog.updateOne(
+      { referenceId: savedTransaction._id },
+      {
+        $set: {
+          "connector.gatewayTransactionId":
+            updatedTransaction.gatewayTransactionId,
+          "connector.gatewayOrderId": updatedTransaction.merchantOrderId,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     const responseData = {
       success: true,
@@ -1568,7 +1631,7 @@ export const generateDefaultQR = async (req, res) => {
       referenceId: savedTransaction._id,
       referenceNo: savedTransaction.transactionId,
       referenceTxnId: txnRefId,
-      description: "Payment link generated",
+      description: "Static QR generated",
       debit: 0,
       credit: 0, // no money yet
       balance: merchant.availableBalance,
@@ -1628,6 +1691,25 @@ export const generateDefaultQR = async (req, res) => {
     };
 
     await Transaction.findByIdAndUpdate(savedTransaction._id, connectorMeta);
+
+    await TransactionsLog.findOneAndUpdate(
+      {
+        referenceType: "PAYIN",
+        referenceId: savedTransaction._id,
+      },
+      {
+        $set: {
+          connector: {
+            name: connectorName,
+            connectorId: merchantConnectorAccount.connectorDetails._id,
+            connectorAccountId:
+              merchantConnectorAccount.connectorAccDetails._id,
+            gatewayRefId: txnRefId,
+          },
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     let qrResult;
     if (connectorName === "cashfree") {
@@ -1766,6 +1848,18 @@ export const generateDefaultQR = async (req, res) => {
     const updatedTransaction = await Transaction.findById(
       savedTransaction._id
     ).lean();
+
+    await TransactionsLog.updateOne(
+      { referenceId: savedTransaction._id },
+      {
+        $set: {
+          "connector.gatewayTransactionId":
+            updatedTransaction.gatewayTransactionId,
+          "connector.gatewayOrderId": updatedTransaction.merchantOrderId,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     console.log("✅ Static QR generated successfully");
 
@@ -1928,7 +2022,7 @@ export const generateDefaultQRTransaction = async (req, res) => {
       referenceId: savedTransaction._id,
       referenceNo: savedTransaction.transactionId,
       referenceTxnId: txnRefId,
-      description: "Payment link generated",
+      description: "Static QR generated",
       debit: 0,
       credit: 0, // no money yet
       balance: merchant.availableBalance,
@@ -2015,6 +2109,25 @@ export const generateDefaultQRTransaction = async (req, res) => {
     };
 
     await Transaction.findByIdAndUpdate(savedTransaction._id, connectorMeta);
+
+    await TransactionsLog.findOneAndUpdate(
+      {
+        referenceType: "PAYIN",
+        referenceId: savedTransaction._id,
+      },
+      {
+        $set: {
+          connector: {
+            name: connectorName,
+            connectorId: merchantConnectorAccount.connectorDetails._id,
+            connectorAccountId:
+              merchantConnectorAccount.connectorAccDetails._id,
+            gatewayRefId: txnRefId,
+          },
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     let qrResult;
     if (connectorName === "cashfree") {
@@ -2153,6 +2266,18 @@ export const generateDefaultQRTransaction = async (req, res) => {
     const updatedTransaction = await Transaction.findById(
       savedTransaction._id
     ).lean();
+
+    await TransactionsLog.updateOne(
+      { referenceId: savedTransaction._id },
+      {
+        $set: {
+          "connector.gatewayTransactionId":
+            updatedTransaction.gatewayTransactionId,
+          "connector.gatewayOrderId": updatedTransaction.merchantOrderId,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     console.log("✅ Static QR generated successfully");
 
@@ -2708,6 +2833,23 @@ export const generatePaymentLinkTransaction = async (req, res) => {
 
     await Transaction.findByIdAndUpdate(savedTransaction._id, connectorMeta);
 
+    await TransactionsLog.findOneAndUpdate(
+      {
+        referenceType: "PAYIN",
+        referenceId: savedTransaction._id,
+      },
+      {
+        $set: {
+          connector: {
+            name: connectorName,
+            connectorId: activeAccount.connector?._id,
+            connectorAccountId: activeAccount.connectorAccount?._id,
+            gatewayRefId: txnRefId,
+          },
+        },
+      }
+    );
+
     let paymentResult;
 
     if (connectorName === "cashfree") {
@@ -2818,16 +2960,30 @@ export const generatePaymentLinkTransaction = async (req, res) => {
       updateTransaction.razorPayInitiationStatus = "RAZORPAY_CREATED";
     }
 
-    const [updatedTransac, updatedMerchant] = await Promise.all([
-      Transaction.findByIdAndUpdate(savedTransaction._id, updateTransaction, {
-        new: true,
-        lean: true,
-      }),
-      Merchant.findOneAndUpdate(
-        { userId: user._id },
-        { lastPayinTransactions: savedTransaction._id }
-      ),
-    ]);
+    const [updatedTransac, updatedMerchant, updatedTransacLog] =
+      await Promise.all([
+        Transaction.findByIdAndUpdate(savedTransaction._id, updateTransaction, {
+          new: true,
+          lean: true,
+        }),
+        Merchant.findOneAndUpdate(
+          { userId: user._id },
+          { lastPayinTransactions: savedTransaction._id }
+        ),
+        TransactionsLog.findOneAndUpdate(
+          {
+            referenceType: "PAYIN",
+            referenceId: savedTransaction._id,
+          },
+          {
+            $set: {
+              "connector.gatewayTransactionId":
+                paymentResult.gatewayTransactionId,
+              "connector.gatewayOrderId": paymentResult.gatewayOrderId,
+            },
+          }
+        ),
+      ]);
 
     // console.log(
     //   `✅ ${connectorName} payment link generated in ${

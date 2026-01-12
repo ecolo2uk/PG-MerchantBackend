@@ -469,6 +469,13 @@ export const initiatePayoutTransaction = async (req, res) => {
           balance: merchantWallet.availableBalance,
           status: "INITIATED",
           source: "API",
+          payoutAccount: {
+            beneficiaryName: beneficiary_name,
+            bankName: beneficiary_bank_name,
+            accountNumber: beneficiary_account_number,
+            ifsc: beneficiary_bank_ifsc,
+            payoutMethod: payment_mode,
+          },
           txnInitiatedDate: new Date(),
         },
       ],
@@ -742,6 +749,24 @@ export const initiatePayoutTransaction = async (req, res) => {
       connectorMeta,
       { session }
     );
+
+    await TransactionsLog.updateOne(
+      {
+        referenceType: "PAYOUT",
+        referenceId: savedTransaction._id,
+      },
+      {
+        $set: {
+          connector: {
+            name: connectorName,
+            connectorId: activeAccount.connector?._id,
+            connectorAccountId: activeAccount.connectorAccount?._id,
+            gatewayRefId: requestId,
+          },
+        },
+      },
+      { session }
+    );
     // console.log(updatedPayout, savedTransaction._id);
 
     const encryptedResponse = await encryptData(
@@ -847,6 +872,16 @@ export const initiatePayoutTransaction = async (req, res) => {
     }
 
     const data = decData.data;
+
+    await TransactionsLog.updateOne(
+      { referenceId: savedTransaction._id },
+      {
+        $set: {
+          "connector.gatewayTransactionId": data.txnId,
+        },
+      },
+      { session }
+    );
 
     const encryptedStatusResponse = await encryptData(
       {
@@ -994,6 +1029,8 @@ export const initiatePayoutTransaction = async (req, res) => {
             balance: updatedMerchant.availableBalance,
             status: "SUCCESS",
             description: "Payout completed successfully",
+            "connector.gatewayTransactionId": decStatusData.txnId,
+            "connector.gatewayOrderId": decStatusData.enquiryId,
             source: "API",
             txnCompletedDate: new Date(),
           },
@@ -1044,6 +1081,8 @@ export const initiatePayoutTransaction = async (req, res) => {
             balance: updatedMerchant.availableBalance,
             status: decStatusData.txnStatus,
             description: "Payout failed - amount released",
+            "connector.gatewayTransactionId": decStatusData.txnId,
+            "connector.gatewayOrderId": decStatusData.enquiryId,
             source: "API",
             txnCompletedDate: new Date(),
           },
