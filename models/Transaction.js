@@ -337,7 +337,12 @@ const transactionSchema = new mongoose.Schema(
 // =========================
 // INDEXES (MERGED)
 // =========================
+// PRIMARY LIST VIEW
 transactionSchema.index({ merchantId: 1, createdAt: -1 });
+
+// FILTERS
+transactionSchema.index({ merchantId: 1, status: 1, createdAt: -1 });
+
 // transactionSchema.index({ transactionId: 1 });
 // transactionSchema.index({ txnRefId: 1 });
 transactionSchema.index({ enpayTxnId: 1 });

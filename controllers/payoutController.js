@@ -864,7 +864,7 @@ export const initiatePayoutTransaction = async (req, res) => {
       statusData.data,
       activeAccount
     );
-    // console.log(decryptedResponse.data, "Dec res");
+    // console.log(decryptedStatusResponse.data, "Dec res");
 
     if (
       !decryptedStatusResponse.success ||
@@ -947,10 +947,10 @@ export const initiatePayoutTransaction = async (req, res) => {
           { userId: merchantId },
           {
             $inc: {
-              availableBalance: payoutAmount,
-              blockedBalance: -payoutAmount,
               totalTransactions: 1,
               payoutTransactions: 1,
+              availableBalance: payoutAmount,
+              blockedBalance: -payoutAmount,
               failedTransactions: 1,
             },
             $set: { lastPayoutTransactions: savedTransaction._id },
@@ -964,19 +964,16 @@ export const initiatePayoutTransaction = async (req, res) => {
           { _id: savedTransaction._id },
           {
             transactionId: decStatusData.txnId,
+            payoutEnquiryId: decStatusData.enquiryId,
+            utr: decStatusData.utrNo,
             status: decStatusData.txnStatus,
+            completedAt: decStatusData.txnDate,
           },
           { session }
         ),
         Merchant.updateOne(
           { userId: merchantId },
           {
-            $inc: {
-              availableBalance: payoutAmount,
-              blockedBalance: -payoutAmount,
-              totalTransactions: 1,
-              payoutTransactions: 1,
-            },
             $set: { lastPayoutTransactions: savedTransaction._id },
           },
           { session }
