@@ -449,6 +449,31 @@ export const initiatePayoutTransaction = async (req, res) => {
 
     // console.log("✅ Payout created successfully:", savedTransaction._id);
 
+    const merchantWallet = await Merchant.findOne(
+      { userId: merchantId },
+      { availableBalance: 1 },
+      { session }
+    );
+
+    await TransactionsLog.create(
+      [
+        {
+          merchantId,
+          referenceType: "PAYOUT",
+          referenceId: savedTransaction._id,
+          referenceNo: payoutId,
+          referenceTxnId: requestId,
+          description: "Payout amount blocked",
+          debit: payoutAmount,
+          credit: 0,
+          balance: merchantWallet.availableBalance,
+          status: "INITIATED",
+          source: "API",
+          txnInitiatedDate: new Date(),
+        },
+      ],
+      { session }
+    );
     /* ===================== VALIDATION ===================== */
 
     if (!amount) {
@@ -515,32 +540,6 @@ export const initiatePayoutTransaction = async (req, res) => {
       });
     }
     balanceBlocked = true;
-
-    const merchantWallet = await Merchant.findOne(
-      { userId: merchantId },
-      { availableBalance: 1 },
-      { session }
-    );
-
-    await TransactionsLog.create(
-      [
-        {
-          merchantId,
-          referenceType: "PAYOUT",
-          referenceId: savedTransaction._id,
-          referenceNo: payoutId,
-          referenceTxnId: requestId,
-          description: "Payout amount blocked",
-          debit: payoutAmount,
-          credit: 0,
-          balance: merchantWallet.availableBalance,
-          status: "INITIATED",
-          source: "API",
-          txnInitiatedDate: new Date(),
-        },
-      ],
-      { session }
-    );
 
     if (!requestId) {
       await failTransaction(
