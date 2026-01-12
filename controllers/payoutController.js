@@ -8,6 +8,7 @@ import { todayFilter } from "../utils/todayFilter.js";
 import Transaction from "../models/Transaction.js";
 import PayoutTransaction from "../models/PayoutTransaction.js";
 import axios from "axios";
+import TransactionsLog from "../models/TransactionsLog.js";
 
 const encryptData = async (reqBody, connectorAccount) => {
   try {
@@ -230,6 +231,28 @@ const failTransaction = async (
       { session }
     );
   }
+
+  const merchantWallet = await Merchant.findOne(
+    { userId: merchantId },
+    { availableBalance: 1 },
+    { session }
+  );
+
+  await TransactionsLog.updateOne(
+    { referenceId: payoutId },
+    {
+      $set: {
+        status: "FAILED",
+        debit: 0,
+        credit: balanceBlocked ? amount : 0,
+        balance: merchantWallet.availableBalance,
+        description: "Payout failed - amount released",
+        source: "SYSTEM",
+        txnCompletedDate: new Date(),
+      },
+    },
+    { session }
+  );
 };
 
 function extractIntegrationKeys(connectorAccount) {
@@ -492,6 +515,32 @@ export const initiatePayoutTransaction = async (req, res) => {
       });
     }
     balanceBlocked = true;
+
+    const merchantWallet = await Merchant.findOne(
+      { userId: merchantId },
+      { availableBalance: 1 },
+      { session }
+    );
+
+    await TransactionsLog.create(
+      [
+        {
+          merchantId,
+          referenceType: "PAYOUT",
+          referenceId: savedTransaction._id,
+          referenceNo: payoutId,
+          referenceTxnId: requestId,
+          description: "Payout amount blocked",
+          debit: payoutAmount,
+          credit: 0,
+          balance: merchantWallet.availableBalance,
+          status: "INITIATED",
+          source: "API",
+          txnInitiatedDate: new Date(),
+        },
+      ],
+      { session }
+    );
 
     if (!requestId) {
       await failTransaction(
@@ -930,6 +979,28 @@ export const initiatePayoutTransaction = async (req, res) => {
           { session }
         ),
       ]);
+
+      const updatedMerchant = await Merchant.findOne(
+        { userId: merchantId },
+        { availableBalance: 1 },
+        { session }
+      );
+
+      await TransactionsLog.updateOne(
+        { referenceId: savedTransaction._id },
+        {
+          $set: {
+            debit: payoutAmount,
+            credit: 0,
+            balance: updatedMerchant.availableBalance,
+            status: "SUCCESS",
+            description: "Payout completed successfully",
+            source: "API",
+            txnCompletedDate: new Date(),
+          },
+        },
+        { session }
+      );
     } else if (["FAILED", "REVERSED"].includes(decStatusData.txnStatus)) {
       await Promise.all([
         PayoutTransaction.updateOne(
@@ -958,6 +1029,28 @@ export const initiatePayoutTransaction = async (req, res) => {
           { session }
         ),
       ]);
+
+      const updatedMerchant = await Merchant.findOne(
+        { userId: merchantId },
+        { availableBalance: 1 },
+        { session }
+      );
+
+      await TransactionsLog.updateOne(
+        { referenceId: savedTransaction._id },
+        {
+          $set: {
+            debit: 0,
+            credit: payoutAmount,
+            balance: updatedMerchant.availableBalance,
+            status: decStatusData.txnStatus,
+            description: "Payout failed - amount released",
+            source: "API",
+            txnCompletedDate: new Date(),
+          },
+        },
+        { session }
+      );
     } else {
       await Promise.all([
         PayoutTransaction.updateOne(

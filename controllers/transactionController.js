@@ -12,6 +12,7 @@ import Razorpay from "razorpay";
 import { isJWTFormat } from "../utils/isJWTFormat.js";
 import { todayFilter } from "../utils/todayFilter.js";
 import PayoutTransaction from "../models/PayoutTransaction.js";
+import TransactionsLog from "../models/TransactionsLog.js";
 
 // Generate unique IDs
 const generateTransactionId = () =>
@@ -155,6 +156,19 @@ const failTransaction = async (
         failedTransactions: 1,
       },
       $set: { lastPayinTransactions: transactionId },
+    }
+  );
+
+  await TransactionsLog.findOneAndUpdate(
+    {
+      referenceId: transactionId,
+    },
+    {
+      $set: {
+        status: "FAILED",
+        description: "Payment failed",
+        txnCompletedDate: new Date(),
+      },
     }
   );
 };
@@ -505,6 +519,22 @@ export const generateDynamicQR = async (req, res) => {
     //   bodyType: typeof req.body,
     //   bodyKeys: Object.keys(req.body),
     // });
+
+    await TransactionsLog.create({
+      merchantId: user._id,
+      referenceType: "PAYIN",
+      referenceId: savedTransaction._id,
+      referenceNo: savedTransaction.transactionId,
+      referenceTxnId: txnRefId,
+      description: "Payment link generated",
+      debit: 0,
+      credit: 0, // no money yet
+      balance: merchant.availableBalance,
+      status: "INITIATED",
+      source: "API",
+      txnInitiatedDate: new Date(),
+    });
+
     if (!amount) {
       await failTransaction(
         savedTransaction._id,
@@ -886,6 +916,21 @@ export const generateDynamicQRTransaction = async (req, res) => {
     // console.log("📊 Transaction data prepared:", transactionData);
 
     savedTransaction = await Transaction.create(transactionData);
+
+    await TransactionsLog.create({
+      merchantId: user._id,
+      referenceType: "PAYIN",
+      referenceId: savedTransaction._id,
+      referenceNo: savedTransaction.transactionId,
+      referenceTxnId: txnRefId,
+      description: "Payment link generated",
+      debit: 0,
+      credit: 0, // no money yet
+      balance: merchant.availableBalance,
+      status: "INITIATED",
+      source: "API",
+      txnInitiatedDate: new Date(),
+    });
 
     /* ===================== VALIDATION ===================== */
 
@@ -1344,7 +1389,7 @@ export const getSalesTransactions = async (req, res) => {
 export const exportSalesToExcel = async (req, res) => {
   try {
     const merchantId = req.user.id;
-    console.log("🟡 Fetching transactions for merchant:", merchantId);
+    console.log("🟡 Fetching transactions for merchant:");
     // console.log(req.query);
     const { transactionRefId, fromDate, toDate } = req.query;
 
@@ -1516,6 +1561,21 @@ export const generateDefaultQR = async (req, res) => {
     };
 
     savedTransaction = await Transaction.create(transactionData);
+
+    await TransactionsLog.create({
+      merchantId: user._id,
+      referenceType: "PAYIN",
+      referenceId: savedTransaction._id,
+      referenceNo: savedTransaction.transactionId,
+      referenceTxnId: txnRefId,
+      description: "Payment link generated",
+      debit: 0,
+      credit: 0, // no money yet
+      balance: merchant.availableBalance,
+      status: "INITIATED",
+      source: "API",
+      txnInitiatedDate: new Date(),
+    });
 
     // Get merchant connector
     const merchantConnectorAccount = await getMerchantConnectorAccount(
@@ -1861,6 +1921,21 @@ export const generateDefaultQRTransaction = async (req, res) => {
     // console.log("📊 Static QR Transaction Data:", transactionData);
 
     savedTransaction = await Transaction.create(transactionData);
+
+    await TransactionsLog.create({
+      merchantId: user._id,
+      referenceType: "PAYIN",
+      referenceId: savedTransaction._id,
+      referenceNo: savedTransaction.transactionId,
+      referenceTxnId: txnRefId,
+      description: "Payment link generated",
+      debit: 0,
+      credit: 0, // no money yet
+      balance: merchant.availableBalance,
+      status: "INITIATED",
+      source: "API",
+      txnInitiatedDate: new Date(),
+    });
 
     /* ===================== VALIDATION ===================== */
 
@@ -2483,6 +2558,22 @@ export const generatePaymentLinkTransaction = async (req, res) => {
     };
 
     savedTransaction = await Transaction.create(transactionData);
+
+    await TransactionsLog.create({
+      merchantId: user._id,
+      referenceType: "PAYIN",
+      referenceId: savedTransaction._id,
+      referenceNo: savedTransaction.transactionId,
+      referenceTxnId: txnRefId,
+      description: "Payment link generated",
+      debit: 0,
+      credit: 0, // no money yet
+      balance: merchant.availableBalance,
+      currency,
+      status: "INITIATED",
+      source: "API",
+      txnInitiatedDate: new Date(),
+    });
 
     /* ===================== VALIDATION ===================== */
 
